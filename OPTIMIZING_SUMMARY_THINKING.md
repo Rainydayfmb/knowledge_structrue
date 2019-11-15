@@ -147,9 +147,14 @@ redlock流程，为了取到锁，客户端应该执行以下操作:
 - redis预减库存减少数据库访问　内存标记减少redis访问　请求先入队列缓冲，异步下单，增强用户体验
 ### 整体流程解决方案
 ```mermaid
-  graph LR
-  B(使用分布式锁setnx) --> C(为了解决主从failover的问题redlock)
-  C --> D(redlock严格的执行时序性)
+  graph TD
+  B(redis判断是否已经秒杀到) --> C(内存里面判断产品是否结束)
+  C --> D(redis的decr预见库存)
+  D --> E(发送mq消息)
+  E --> F(消费mq并查询秒杀商品库存)
+  F --> G(redis判断是否已经秒杀到)
+  G --> |事务开始|H(减库存下订单写入秒杀订单sql加上判断防止数据变为负数)
+  H --> |事务结束|I(结束)
 ```
 
 ## 中间件解决方案
@@ -165,5 +170,20 @@ redlock流程，为了取到锁，客户端应该执行以下操作:
 ##### 触发扩容的条件
 - 如果哈希表ht[0]中保存的key个数与哈希表大小的比例已经达到1:1，即保存的节点数已经大于哈希表大小，且redis服务当前允许执行rehash
 - 或者保存的节点数与哈希表大小的比例超过了安全阈值（默认值为5）
-     则将哈希表大小扩容为原来的两倍
-[参考一](https://luoming1224.github.io/2018/11/12/[redis%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0]redis%E6%B8%90%E8%BF%9B%E5%BC%8Frehash%E6%9C%BA%E5%88%B6/)
+则将哈希表大小扩容为原来的两倍
+- [redis渐进式rehash机制](https://luoming1224.github.io/2018/11/12/[redis%E5%AD%A6%E4%B9%A0%E7%AC%94%E8%AE%B0]redis%E6%B8%90%E8%BF%9B%E5%BC%8Frehash%E6%9C%BA%E5%88%B6/)
+
+##### redis的java客户端jedis
+[jedis实例是非线程安全的](https://www.jianshu.com/p/5e4a1f92c88f),常常通过JedisPool连接池去管理实例，在多线程情况下让每个线程有自己独立的jedis实例。Redis所有单个命令的执行都是原子性的，这与它的单线程机制有关；
+jedi实例不是线程安全的原因：
+
+#####
+
+## 网络解决方案
+### org.apache.http.NoHttpResponseException:ip : port failed to respond
+产生的原因肯可能有两种
+- 当服务器端由于负载过大等情况发生时，可能会导致在收到请求后无法处理(比如没有足够的线程资源)，会直接丢弃链接而不进行处理。此时客户端就回报错：NoHttpResponseException。 建议出现这种情况时，可以选择重试。
+- 同一个线程的多个请求可以复用同一个长连接。客户端使用长链接的时候，服务端已经关闭了该连接，导致出现NoHttpResponseException。解决的放哪可以.
+1. http请求使用重发机制，捕获NohttpResponseException的异常，重新发送请求，重发3次后还是失败才停止。由于不知道客户端捕获到NohttpResponseException这个异常后，客户端是否自动关闭了这个连接，每次重发都需要新建连接发送。新建连接不存在太长的空闲时间问题，因此能够通过重发解决交易失败的问题。
+2. 我方系统主动检查每个连接的空闲时间，允许设置连接的最大空闲时间M，即客户端建立的连接空闲M秒后，自动发起断开连接。只要这个M时间小于服务端的最大空闲时间，将完全避免服务端主动断开连接导致的异常。
+[apache——http文档](http://hc.apache.org/httpcomponents-client-ga/tutorial/html/connmgmt.html#d5e659)
