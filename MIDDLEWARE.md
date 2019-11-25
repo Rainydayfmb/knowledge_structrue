@@ -119,7 +119,235 @@ QuorumCnxManager内部维护了一系列的队列，用来保存接收到的、�
 
 9. 统计投票。完成选票归档后，就可以开始统计投票，统计投票是为了统计集群中是否已经有过半的服务器认可了当前的内部投票，如果确定已经有过半服务器认可了该投票，则终止投票。否则返回步骤4。
 
-　　10. 更新服务器状态。若已经确定可以终止投票，那么就开始更新服务器状态，服务器首选判断当前被过半服务器认可的投票所对应的Leader服务器是否是自己，若是自己，则将自己的服务器状态更新为LEADING，若不是，则根据具体情况来确定自己是FOLLOWING或是OBSERVING。
+10. 更新服务器状态。若已经确定可以终止投票，那么就开始更新服务器状态，服务器首选判断当前被过半服务器认可的投票所对应的Leader服务器是否是自己，若是自己，则将自己的服务器状态更新为LEADING，若不是，则根据具体情况来确定自己是FOLLOWING或是OBSERVING。
 
 以上10个步骤就是FastLeaderElection的核心，其中步骤4-9会经过几轮循环，直到有Leader选举产生。
 ![avatar](https://img-blog.csdn.net/20180228151845627)
+
+### zk的数据与存储
+在zk中，数据存储分为两个部分：内存数据存储和磁盘数据存储。其中磁盘数据又可以分为快照和事务日志。
+
+#### 内存数据
+zk的数据模式是一个树结构，在内存数据库中，存储了整个书结构的内容，包括所有的节点路径、节点数据以及ACL信息，zk会定时将这个数据存储到磁盘上。
+
+**DateTree**
+树结构的数据结构
+![avatar](https://upload-images.jianshu.io/upload_images/11345047-6983f333cfce1e51.png?imageMogr2/auto-orient/strip|imageView2/2/w/1200)
+
+**DataNode**
+dataNode是数据存储的最小单元，数据结构如上图所示，dataNode内部除了保存了节点的数据内容（data[]）、ACL列表（acl）和节点状态（state）,还记录了父节点的饮用和子节点列表两个属性。
+
+**zk的database**
+Zookeeper的内存数据库，负责管理Zookeeper的所有会话，DataTree存储和事务日志。它会定时向磁盘dump快照数据（snapCount主要控制），服务器启动时，会通过磁盘上的事务日志和快照数据文件恢复成完整的内存数据库。
+
+### 磁盘文件存储
+[参考](https://www.jianshu.com/p/220cd7f0382f)
+zookeeper总共提供了两种持久化文件，分别是内存快照SnapShot和事务日
+- FileTxnLog：事务日志文件，以日志追加的方式维护。这种日志有点类似MySQL数据库中的binlog，zookeeper会把所有涉及到修改内存数据结构的操作日志记录到该log中，也就是说，zookeeper会把每一个事务操作诸如添加、删除都会记录到这个日志文件中，当zookeeper出现异常时，可以借助该事务日志进行数据恢复。日志文件它主要是负责实时记录对服务端的每一次的事务操作日志
+- FileSnap：内存快照文件，保存内存数据库某一时刻的状态，所以数据不一定是最新的。
+
+zk服务其启动的时候，首先会进行数据初始化，将磁盘中数据，加载到内存中，恢复现场。具体流程如下图所示
+![avatar](https://upload-images.jianshu.io/upload_images/11345047-8246f433dba2a103.png?imageMogr2/auto-orient/strip|imageView2/2/w/1200)
+
+### 数据同步
+zk的同步通常分为四种：直接差异化同步（diff同步），先回滚在差异化同步（trunc+diff同步），仅回滚同步（trunc同步）和全量同步（snap同步）
+
+ZK 集群服务器启动之后，会进行 2 个动作：
+- 选举 Leader：分配角色
+- Learner 向 Leader 服务器注册：数据同步。 数据同步，本质：将没有在 Learner 上执行的事务，同步给 Learner。
+数据同步的流程如下：
+![avatar](https://upload-images.jianshu.io/upload_images/11345047-74e172eae7ad8454.png?imageMogr2/auto-orient/strip|imageView2/2/w/1200)
+**1.获取learner状态**
+在注册learner的最后阶段，learner服务器会发送给Leader服务器一个ACKEPOCH数据包，Leader会从这个数据包中解析出该leaner的currentEpoch和lastZxid。
+
+**2.数据同步初始化**
+首先从Zookeeper内存数据库中提取出事务请求对应的提议缓存队列proposals，同时完成peerLastZxid(该Learner最后处理的ZXID)、minCommittedLog(Leader提议缓存队列commitedLog中最小的ZXID)、maxCommittedLog(Leader提议缓存队列commitedLog中的最大ZXID)三个ZXID值的初始化。
+- 直接差异化同步(DIFF同步，peerLastZxid介于minCommittedLog和maxCommittedLog之间)。Leader首先向这个Learner发送一个DIFF指令，用于通知Learner进入差异化数据同步阶段，Leader即将把一些Proposal同步给自己，针对每个Proposal，Leader都会通过发送PROPOSAL内容数据包和COMMIT指令数据包来完成，
+- 先回滚再差异化同步(TRUNC+DIFF同步，Leader已经将事务记录到本地事务日志中，但是没有成功发起Proposal流程)。当Leader发现某个Learner包含了一条自己没有的事务记录，那么就需要该Learner进行事务回滚，回滚到Leader服务器上存在的，同时也是最接近于peerLastZxid的ZXID。
+- 仅回滚同步(TRUNC同步，peerLastZxid大于maxCommittedLog)。Leader要求Learner回滚到ZXID值为maxCommittedLog对应的事务操作。
+- 全量同步(SNAP同步，peerLastZxid小于minCommittedLog或peerLastZxid不等于lastProcessedZxid)。Leader无法直接使用提议缓存队列和Learner进行同步，因此只能进行全量同步。Leader将本机的全量内存数据同步给Learner。Leader首先向Learner发送一个SNAP指令，通知Learner即将进行全量同步，随后，Leader会从内存数据库中获取到全量的数据节点和会话超时时间记录器，将他们序列化后传输给Learner。Learner接收到该全量数据后，会对其反序列化后载入到内存数据库中。
+
+### zookeerper一致性协议：Zab协议
+[参考](https://www.jianshu.com/p/2bceacd60b8a)
+
+#### 什么是zab协议
+Zab协议 的全称是 Zookeeper Atomic Broadcast （Zookeeper原子广播）。Zookeeper 是通过 Zab 协议来保证分布式事务的最终一致性。
+- zab协议是为分布式协调服务zookeeper专门设计的一种**支持崩溃恢复**的**原子广播协议**，是Zookeeper保证数据一致性的核心算法。zab借鉴了paxos算法，但又不像paxos那样，是一种通用的分布式一致性算法。**它是特别为zookeeper设计的支持崩溃的原子广播协议。**
+- 在Zookeeper中主要依赖Zab协议来实现数据一致性，基于该协议，zk实现了一种主备模型（即Leader和Follower模型）的系统架构来保证集群中各个副本之间数据的一致性。这里的主备系统架构模型，就是指只有一台客户端（Leader）负责处理外部的写事务请求，然后Leader客户端将数据同步到其他Follower节点。
+
+Zookeeper 客户端会随机的链接到 zookeeper 集群中的一个节点，如果是读请求，就直接从当前节点中读取数据；如果是写请求，那么节点就会向 Leader 提交事务，Leader 接收到事务提交，会广播该事务，只要超过半数节点写入成功，该事务就会被提交。
+
+#### zab协议的特性
+- **zab协议确保那些已经在leader服务器上提交（commit）的事务最终被所有的服务器提交。**
+- Zab 协议需要确保**丢弃那些只在 Leader 上被提出而没有被提交的事务**。
+![avatar](https://upload-images.jianshu.io/upload_images/1053629-d32b630b65a7a0b2.png?imageMogr2/auto-orient/strip|imageView2/2/w/470)
+
+#### Zab协议实现的作用
+1）使用一个单一的主进程（Leader）来接收并处理客户端的事务请求（也就是写请求），并采用了Zab的原子广播协议，将服务器数据的状态变更以 事务proposal （事务提议）的形式广播到所有的副本（Follower）进程上去。
+2）保证一个全局的变更序列被顺序引用。
+Zookeeper是一个树形结构，很多操作都要先检查才能确定是否可以执行，比如P1的事务t1可能是创建节点"/a"，t2可能是创建节点"/a/bb"，只有先创建了父节点"/a"，才能创建子节点"/a/b"。为了保证这一点，Zab要保证同一个Leader发起的事务要按顺序被apply，同时还要保证只有先前Leader的事务被apply之后，新选举出来的Leader才能再次发起事务。
+3）当主进程出现异常的时候，整个zk集群依旧能正常工作。
+
+#### zab协议原理
+Zab协议要求每个 Leader 都要经历三个阶段：发现，同步，广播。
+- 发现：要求zookeeper集群必须选举出一个 Leader 进程，同时 Leader 会维护一个 Follower 可用客户端列表。将来客户端可以和这些 Follower节点进行通信。
+- 同步：Leader 要负责将本身的数据与 Follower 完成同步，做到多副本存储。这样也是提现了CAP中的高可用和分区容错。Follower将队列中未处理完的请求消费完成后，写入本地事务日志中。
+- 广播：Leader 可以接受客户端新的事务Proposal请求，将新的Proposal请求广播给所有的 Follower。
+
+#### zab协议的内容
+Zab 协议包括两种基本的模式：崩溃恢复 和 消息广播
+**协议过程**
+- 当整个集群启动过程中，或者当 Leader 服务器出现网络中弄断、崩溃退出或重启等异常时，Zab协议就会 进入崩溃恢复模式，选举产生新的Leader。
+- 当选举产生了新的 Leader，同时集群中有过半的机器与该 Leader 服务器完成了状态同步（即数据同步）之后，Zab协议就会退出崩溃恢复模式，进入消息广播模式。
+- 这时，如果有一台遵守Zab协议的服务器加入集群，因为此时集群中已经存在一个Leader服务器在广播消息，那么该新加入的服务器自动进入恢复模式：找到Leader服务器，并且完成数据同步。同步完成后，作为新的Follower一起参与到消息广播流程中。
+
+**协议状态切换**
+当Leader出现崩溃退出或者机器重启，亦或是集群中不存在超过半数的服务器与Leader保存正常通信，Zab就会再一次进入崩溃恢复，发起新一轮Leader选举并实现数据同步。同步完成后又会进入消息广播模式，接收事务请求。
+
+**保证消息有序**
+在整个消息广播中，Leader会将每一个事务请求转换成对应的 proposal 来进行广播，并且在广播 事务Proposal 之前，Leader服务器会首先为这个事务Proposal分配一个全局单递增的唯一ID，称之为事务ID（即zxid），由于Zab协议需要保证每一个消息的严格的顺序关系，因此必须将每一个proposal按照其zxid的先后顺序进行排序和处理。
+//**todo zk全局单递增唯一id生成策略。**
+
+
+##### 消息广播
+1.在zookeeper集群中，数据副本的传递策略就是采用消息广播模式。zookeeper中农数据副本的同步方式与二段提交相似，但是却又不同。二段提交要求协调者必须等到所有的参与者全部反馈ACK确认消息后，再发送commit消息。要求所有的参与者要么全部成功，要么全部失败。二段提交会产生严重的阻塞问题。
+2.Zab协议中 Leader 等待 Follower 的ACK反馈消息是指“只要半数以上的Follower成功反馈即可，不需要收到全部Follower反馈”。
+![avatar](https://upload-images.jianshu.io/upload_images/1053629-447433fdf7a1d7d6.png?imageMogr2/auto-orient/strip|imageView2/2/w/555)
+
+**消息广播具体步骤**
+1）客户端发起一个写操作请求。
+
+2）Leader 服务器将客户端的请求转化为事务 Proposal 提案，同时为每个 Proposal 分配一个全局的ID，即zxid。
+
+3）Leader 服务器为每个 Follower 服务器分配一个单独的队列，然后将需要广播的 Proposal 依次放到队列中取，并且根据 FIFO 策略进行消息发送。
+
+4）Follower 接收到 Proposal 后，会首先将其以事务日志的方式写入本地磁盘中，写入成功后向 Leader 反馈一个 Ack 响应消息。
+
+5）Leader 接收到超过半数以上 Follower 的 Ack 响应消息后，即认为消息发送成功，可以发送 commit 消息。
+
+6）Leader 向所有 Follower 广播 commit 消息，同时自身也会完成事务提交。Follower 接收到 commit 消息后，会将上一条事务提交。
+
+##### 崩溃恢复
+zookeeper 采用 Zab 协议的核心，就是只要有一台服务器提交了 Proposal，就要确保所有的服务器最终都能正确提交 Proposal。这也是 CAP/BASE 实现最终一致性的一个体现。
+
+Leader 服务器与每一个 Follower 服务器之间都维护了一个单独的 FIFO 消息队列进行收发消息，使用队列消息可以做到异步解耦。 Leader 和 Follower 之间只需要往队列中发消息即可。如果使用同步的方式会引起阻塞，性能要下降很多。
+
+一旦 Leader 服务器出现崩溃或者由于网络原因导致 Leader 服务器失去了与过半 Follower 的联系，那么就会进入崩溃恢复模式。
+
+在 Zab 协议中，为了保证程序的正确运行，整个恢复过程结束后需要选举出一个新的 Leader 服务器。因此 Zab 协议需要一个高效且可靠的 Leader 选举算法，从而确保能够快速选举出新的 Leader 。
+
+Leader 选举算法不仅仅需要让 Leader 自己知道自己已经被选举为 Leader ，同时还需要让集群中的所有其他机器也能够快速感知到选举产生的新 Leader 服务器。
+
+**崩溃恢复主要包括两部分：Leader选举 和 数据恢复**
+
+##### Zab 协议如何保证数据一致性
+假设两种异常情况：
+1、一个事务在 Leader 上提交了，并且过半的 Folower 都响应 Ack 了，但是 Leader 在 Commit 消息发出之前挂了。
+2、假设一个事务在 Leader 提出之后，Leader 挂了。
+
+要确保如果发生上述两种情况，数据还能保持一致性，那么 Zab 协议选举算法必须满足以下要求：
+
+Zab 协议崩溃恢复要求满足以下两个要求：
+1）确保已经被 Leader 提交的 Proposal 必须最终被所有的 Follower 服务器提交。
+2）确保丢弃已经被 Leader 提出的但是没有被提交的 Proposal。
+
+根据上述要求
+Zab协议需要保证选举出来的Leader需要满足以下条件：
+1）新选举出来的 Leader 不能包含未提交的 Proposal 。
+即新选举的 Leader 必须都是已经提交了 Proposal 的 Follower 服务器节点。
+2）新选举的 Leader 节点中含有最大的 zxid 。
+这样做的好处是可以避免 Leader 服务器检查 Proposal 的提交和丢弃工作。
+
+##### zab如何做数据同步
+1）完成 Leader 选举后（新的 Leader 具有最高的zxid），在正式开始工作之前（接收事务请求，然后提出新的 Proposal），Leader 服务器会首先确认事务日志中的所有的 Proposal 是否已经被集群中过半的服务器 Commit。
+
+2）Leader 服务器需要确保所有的 Follower 服务器能够接收到每一条事务的 Proposal ，并且能将所有已经提交的事务 Proposal 应用到内存数据中。等到 Follower 将所有尚未同步的事务 Proposal 都从 Leader 服务器上同步过啦并且应用到内存数据中以后，Leader 才会把该 Follower 加入到真正可用的 Follower 列表中。
+
+##### Zab 数据同步过程中，如何处理需要丢弃的 Proposal
+
+在 Zab 的事务编号 zxid 设计中，zxid是一个64位的数字。
+
+其中低32位可以看成一个简单的单增计数器，针对客户端每一个事务请求，Leader 在产生新的 Proposal 事务时，都会对该计数器加1。而高32位则代表了 Leader 周期的 epoch 编号。
+
+    epoch 编号可以理解为当前集群所处的年代，或者周期。每次Leader变更之后都会在 epoch 的基础上加1，这样旧的 Leader 崩溃恢复之后，其他Follower 也不会听它的了，因为 Follower 只服从epoch最高的 Leader 命令。
+
+每当选举产生一个新的 Leader ，就会从这个 Leader 服务器上取出本地事务日志充最大编号 Proposal 的 zxid，并从 zxid 中解析得到对应的 epoch 编号，然后再对其加1，之后该编号就作为新的 epoch 值，并将低32位数字归零，由0开始重新生成zxid。
+
+Zab 协议通过 epoch 编号来区分 Leader 变化周期，能够有效避免不同的 Leader 错误的使用了相同的 zxid 编号提出了不一样的 Proposal 的异常情况。
+
+基于以上策略
+当一个包含了上一个 Leader 周期中尚未提交过的事务 Proposal 的服务器启动时，当这台机器加入集群中，以 Follower 角色连上 Leader 服务器后，Leader 服务器会根据自己服务器上最后提交的 Proposal 来和 Follower 服务器的 Proposal 进行比对，比对的结果肯定是 Leader 要求 Follower 进行一个回退操作，回退到一个确实已经被集群中过半机器 Commit 的最新 Proposal。
+
+#### zab的四个阶段
+
+**1、选举阶段（Leader Election）**
+节点在一开始都处于选举节点，只要有一个节点得到超过半数节点的票数，它就可以当选准 Leader，只有到达第三个阶段（也就是同步阶段），这个准 Leader 才会成为真正的 Leader。
+
+Zookeeper 规定所有有效的投票都必须在同一个 轮次 中，每个服务器在开始新一轮投票时，都会对自己维护的 logicalClock 进行自增操作。
+
+每个服务器在广播自己的选票前，会将自己的投票箱（recvset）清空。该投票箱记录了所受到的选票。
+例如：Server_2 投票给 Server_3，Server_3 投票给 Server_1，则Server_1的投票箱为(2,3)、(3,1)、(1,1)。（每个服务器都会默认给自己投票）
+
+前一个数字表示投票者，后一个数字表示被选举者。票箱中只会记录每一个投票者的最后一次投票记录，如果投票者更新自己的选票，则其他服务器收到该新选票后会在自己的票箱中更新该服务器的选票。
+
+这一阶段的目的就是为了选出一个准 Leader ，然后进入下一个阶段。
+协议并没有规定详细的选举算法，后面会提到实现中使用的 Fast Leader Election。
+![avatar](https://upload-images.jianshu.io/upload_images/1053629-cb0c776cef667fcb.png?imageMogr2/auto-orient/strip|imageView2/2/w/700)
+
+**2、发现阶段（Descovery）**
+在这个阶段，Followers 和上一轮选举出的准 Leader 进行通信，同步 Followers 最近接收的事务 Proposal 。
+一个 Follower 只会连接一个 Leader，如果一个 Follower 节点认为另一个 Follower 节点，则会在尝试连接时被拒绝。被拒绝之后，该节点就会进入 Leader Election阶段。
+
+这个阶段的主要目的是发现当前大多数节点接收的最新 Proposal，并且准 Leader 生成新的 epoch ，让 Followers 接收，更新它们的 acceptedEpoch。
+![avatar](https://upload-images.jianshu.io/upload_images/1053629-c75701e220688a8e.png?imageMogr2/auto-orient/strip|imageView2/2/w/700)
+
+**3、同步阶段（Synchronization）**
+同步阶段主要是利用 Leader 前一阶段获得的最新 Proposal 历史，同步集群中所有的副本。
+只有当 quorum（超过半数的节点） 都同步完成，准 Leader 才会成为真正的 Leader。Follower 只会接收 zxid 比自己 lastZxid 大的 Proposal。
+![avatar](https://upload-images.jianshu.io/upload_images/1053629-594a86e8224affba.png?imageMogr2/auto-orient/strip|imageView2/2/w/700)
+
+**4、广播阶段（Broadcast）**
+到了这个阶段，Zookeeper 集群才能正式对外提供事务服务，并且 Leader 可以进行消息广播。同时，如果有新的节点加入，还需要对新节点进行同步。
+需要注意的是，Zab 提交事务并不像 2PC 一样需要全部 Follower 都 Ack，只需要得到 quorum（超过半数的节点）的Ack 就可以。
+![avatar](https://upload-images.jianshu.io/upload_images/1053629-6c9e4297627e4570.png?imageMogr2/auto-orient/strip|imageView2/2/w/700)
+
+#### 协议实现
+协议的 Java 版本实现跟上面的定义略有不同，选举阶段使用的是 Fast Leader Election（FLE），它包含了步骤1的发现指责。因为FLE会选举拥有最新提议的历史节点作为 Leader，这样就省去了发现最新提议的步骤。
+
+实际的实现将发现和同步阶段合并为 Recovery Phase（恢复阶段），所以，Zab 的实现实际上有三个阶段。
+Zab协议三个阶段：
+
+1）选举（Fast Leader Election）
+2）恢复（Recovery Phase）
+3）广播（Broadcast Phase）
+
+Fast Leader Election（快速选举）
+前面提到的 FLE 会选举拥有最新Proposal history （lastZxid最大）的节点作为 Leader，这样就省去了发现最新提议的步骤。这是基于拥有最新提议的节点也拥有最新的提交记录
+
+成为 Leader 的条件：
+  1）选 epoch 最大的
+  2）若 epoch 相等，选 zxid 最大的
+  3）若 epoch 和 zxid 相等，选择 server_id 最大的（zoo.cfg中的myid）
+
+节点在选举开始时，都默认投票给自己，当接收其他节点的选票时，会根据上面的 Leader条件 判断并且更改自己的选票，然后重新发送选票给其他节点。当有一个节点的得票超过半数，该节点会设置自己的状态为 Leading ，其他节点会设置自己的状态为 Following。
+![avatar](https://upload-images.jianshu.io/upload_images/1053629-75683fa04d349414.png?imageMogr2/auto-orient/strip|imageView2/2/w/700)
+
+Recovery Phase（恢复阶段）
+这一阶段 Follower 发送他们的 lastZxid 给 Leader，Leader 根据 lastZxid 决定如何同步数据。这里的实现跟前面的 Phase 2 有所不同：Follower 收到 TRUNC 指令会终止 L.lastCommitedZxid 之后的 Proposal ，收到 DIFF 指令会接收新的 Proposal。
+history.lastCommitedZxid：最近被提交的 Proposal zxid
+history.oldThreshold：被认为已经太旧的已经提交的 Proposal zxid
+![avatar](https://upload-images.jianshu.io/upload_images/1053629-613f99cec1c34e2e.png?imageMogr2/auto-orient/strip|imageView2/2/w/700)
+
+### zk的使用场景
+**分布式协调**
+这个其实是 zookeeper 很经典的一个用法，简单来说，就好比，你 A 系统发送个请求到 mq，然后 B 系统消息消费之后处理了。那 A 系统如何知道 B 系统的处理结果？用 zookeeper 就可以实现分布式系统之间的协调工作。A 系统发送请求之后可以在 zookeeper 上对某个节点的值注册个监听器，一旦 B 系统处理完了就修改 zookeeper 那个节点的值，A 系统立马就可以收到通知，完美解决。
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/zookeeper-distributed-coordination.png)
+**分布式锁**
+举个栗子。对某一个数据连续发出两个修改操作，两台机器同时收到了请求，但是只能一台机器先执行完另外一个机器再执行。那么此时就可以使用 zookeeper 分布式锁，一个机器接收到了请求之后先获取 zookeeper 上的一把分布式锁，就是可以去创建一个 znode，接着执行操作；然后另外一个机器也尝试去创建那个 znode，结果发现自己创建不了，因为被别人创建了，那只能等着，等第一个机器执行完了自己再执行。
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/zookeeper-distributed-lock-demo.png)
+**元数据/配置信息管理**
+zookeeper 可以用作很多系统的配置信息的管理，比如 kafka、storm 等等很多分布式系统都会选用 zookeeper 来做一些元数据、配置信息的管理，包括 dubbo 注册中心不也支持 zookeeper 么？
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/zookeeper-meta-data-manage.png)
+**HA高可用性**
+这个应该是很常见的，比如 hadoop、hdfs、yarn 等很多大数据系统，都选择基于 zookeeper 来开发 HA 高可用机制，就是一个重要进程一般会做主备两个，主进程挂了立马通过 zookeeper 感知到切换到备用进程。
+![avatar](https://github.com/doocs/advanced-java/blob/master/images/zookeeper-active-standby.png)
