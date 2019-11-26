@@ -149,7 +149,65 @@ coordinate对应这原来的 sql线程，具体执行binlog复制的是worker,�
   H --> |事务结束|I(结束)
 ```
 
-## 中间件解决方案
+## 缓存
+
+**为什么使用缓存**
+- 高性能：对于一些需要复杂操作耗时查出来的结果，且确定后面不怎么变化，但是有很多读请求，那么直接将查询出来的结果放在缓存中，后面直接读缓存就好。
+- 高并发：mysql 单机支撑到 2000QPS 也开始容易报警了。缓存单机支撑的并发量轻松一秒几万十几万。
+
+**用了缓存之后有什么不良后果**
+- [缓存与数据库双写不一致](#redisJump1)
+- [缓存雪崩、缓存穿透](#redisJump2)
+- [缓存并发竞争](#redisJump3)
+
+
+<span id = "redisJump1">**数据库与缓存的双写一致性问题**</span>
+1.[Cache Aside Pattern](https://www.liangzl.com/get-article-detail-30109.html)
+![avatar](https://oscimg.oschina.net/oscnet/3389b4d1aa144c753563b4948a1660eafc1.jpg)
+
+2.为什么是先删除缓存再更新数据库,而不是反过来
+![avatar](https://oscimg.oschina.net/oscnet/42596b40fad8ec4ed884572ae3b7c9b515a.jpg)
+
+3.并发读写的一致性问题
+![avatar](https://oscimg.oschina.net/oscnet/0175e0029981448e46341cf3d7cc9fbe93c.jpg)
+
+4.并发读写不一致的解决方案
+![avatar](https://oscimg.oschina.net/oscnet/b2018cd45ae3e19f5123addc53ad17ba753.jpg)
+读请求和写请求串行化，串到一个内存队列里去，这样就可以保证一定不会出现不一致的情况. 一般来说，如果你的系统不是严格要求缓存+数据库必须一致性的话，缓存可以稍微的跟数据库偶尔有不一致的情况，最好不要做这个方案.串行化之后，就会导致系统的吞吐量会大幅度的降低，用比正常情况下多几倍的机器去支撑线上的一个请求。
+
+<span id = "redisJump2">**缓存雪崩、缓存穿透、缓存击穿**</span>
+[参考](https://baijiahao.baidu.com/s?id=1619572269435584821&wfr=spider&for=pc)
+1.缓存雪崩
+缓存雪崩是指在设置缓存时采用了相同的过期时间，导致缓存在某一时刻同时失效，导致所有的查询都落在数据库上，造成了缓存雪崩。举个例子来说，对于系统 A，假设每天高峰期每秒 5000 个请求，本来缓存在高峰期可以扛住每秒 4000 个请求，但是缓存机器意外发生了全盘宕机。缓存挂了，此时 1 秒 5000 个请求全部落数据库，数据库必然扛不住，它会报一下警，然后就挂了。此时，如果没有采用什么特别的方案来处理这个故障，DBA 很着急，重启数据库，但是数据库立马又被新的流量给打死了。
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/redis-caching-avalanche.png)
+
+2.缓存雪崩的事前事中事后的解决方案如下：
+- 事前：redis 高可用，主从+[哨兵](#sentinelJump1)，redis cluster，避免全盘崩溃。
+- 事中：本地 ehcache 缓存 + hystrix 限流&降级，避免 MySQL 被打死。
+- 事后：redis 持久化，一旦重启，自动从磁盘上加载数据，快速恢复缓存数据。
+
+用户发送一个请求，系统 A 收到请求后，先查本地 ehcache 缓存，如果没查到再查 redis。如果 ehcache 和 redis 都没有，再查数据库，将数据库中的结果，写入 ehcache 和 redis 中。
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/redis-caching-avalanche-solution.png)
+//todo ehcache和hystrix相关
+
+3.缓存穿透
+缓存穿透，是指查询一个数据库一定不存在的数据。
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/redis-caching-penetration.png)
+解决方法：解决方式很简单，每次系统 A 从数据库中只要没查到，就写一个空值到缓存里去，比如 set -999 UNKNOWN。然后设置一个过期时间，这样的话，下次有相同的 key 来访问的时候，在缓存失效之前，都可以直接从缓存中取数据。
+
+4.缓存击穿
+缓存击穿，是指一个key非常热点，在不停的扛着大并发，大并发集中对这一个点进行访问，当这个key在失效的瞬间，持续的大并发就穿破缓存，直接请求数据库，就像在一个屏障上凿开了一个洞。
+解决方法：不同场景下的解决方式可如下：
+- 若缓存的数据是基本不会发生更新的，则可尝试将该热点数据设置为永不过期。
+- 若缓存的数据更新不频繁，且缓存刷新的整个流程耗时较少的情况下，则可以采用基于 redis、zookeeper 等分布式中间件的分布式互斥锁，或者本地互斥锁以保证仅少量的请求能请求数据库并重新构建缓存，其余线程则在锁释放后能访问到新缓存。
+- 若缓存的数据更新频繁或者缓存刷新的流程耗时较长的情况下，可以利用定时线程在缓存过期前主动的重新构建缓存或者延后缓存的过期时间，以保证所有的请求能一直访问到对应的缓存。
+
+
+
+
+<span id = "redisJump3">**缓存并发竞争**</span>
+
+
 ### Redis
 #### rehash
   [渐进式 rehash 策略](http://redisbook.com/preview/dict/incremental_rehashing.html):为了避免 rehash 对服务器性能造成影响， 服务器不是一次性将 ht[0] 里面的所有键值对全部 rehash 到 ht[1] ， 而是分多次、渐进式地将 ht[0] 里面的键值对慢慢地 rehash 到 ht[1] 。
@@ -168,3 +226,19 @@ coordinate对应这原来的 sql线程，具体执行binlog复制的是worker,�
 ##### redis的java客户端jedis
 [jedis实例是非线程安全的](https://www.jianshu.com/p/5e4a1f92c88f),常常通过JedisPool连接池去管理实例，在多线程情况下让每个线程有自己独立的jedis实例。Redis所有单个命令的执行都是原子性的，这与它的单线程机制有关；
 jedi实例不是线程安全的原因：
+
+##### <span id = "sentinelJump1">redis 哨兵模式</span>
+[参考](https://www.jianshu.com/p/06ab9daf921d)
+主从切换技术的方法是：当主服务器宕机后，需要手动把一台从服务器切换为主服务器，这就需要人工干预，费事费力，还会造成一段时间内服务不可用。这不是一种推荐的方式，更多时候，我们优先考虑**哨兵模式。**
+1.哨兵模式概念
+哨兵模式是一种特殊的模式，首先Redis提供了哨兵的命令，哨兵是一个独立的进程，作为进程，它会独立运行。其原理是哨兵通过发送命令，等待Redis服务器响应，从而监控运行的多个Redis实例。
+![avatar](https://upload-images.jianshu.io/upload_images/11320039-57a77ca2757d0924.png?imageMogr2/auto-orient/strip|imageView2/2/w/507)
+- 通过发送命令，让Redis服务器返回监控其运行状态，包括主服务器和从服务器。
+- 当哨兵监测到master宕机，会自动将slave切换成master，然后通过发布订阅模式通知其他的从服务器，修改配置文件，让它们切换主机。
+
+然而一个哨兵进程对Redis服务器进行监控，可能会出现问题，为此，我们可以使用多个哨兵进行监控。各个哨兵之间还会进行监控，这样就形成了多哨兵模式。
+
+用文字描述一下故障切换（failover）的过程。假设主服务器宕机，哨兵1先检测到这个结果，系统并不会马上进行failover过程，仅仅是哨兵1主观的认为主服务器不可用，这个现象成为**主观下线**。当后面的哨兵也检测到主服务器不可用，并且数量达到一定值时，那么哨兵之间就会进行一次投票，投票的结果由一个哨兵发起，进行failover操作。切换成功后，就会通过发布订阅模式，让各个哨兵把自己监控的从服务器实现切换主机，这个过程称为**客观下线**。这样对于客户端而言，一切都是透明的。
+
+2.Redis配置哨兵模式
+![avatar](https://upload-images.jianshu.io/upload_images/11320039-3f40b17c0412116c.png?imageMogr2/auto-orient/strip|imageView2/2/w/747)

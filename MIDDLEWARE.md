@@ -350,4 +350,15 @@ zookeeper 可以用作很多系统的配置信息的管理，比如 kafka、stor
 ![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/zookeeper-meta-data-manage.png)
 **HA高可用性**
 这个应该是很常见的，比如 hadoop、hdfs、yarn 等很多大数据系统，都选择基于 zookeeper 来开发 HA 高可用机制，就是一个重要进程一般会做主备两个，主进程挂了立马通过 zookeeper 感知到切换到备用进程。
-![avatar](https://github.com/doocs/advanced-java/blob/master/images/zookeeper-active-standby.png)
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/zookeeper-active-standby.png)
+
+## RPC
+RPC要解决的两个问题：
+1. 解决分布式系统中，服务之间的调用问题。
+2. 远程调用时，要能够像本地调用一样方便，让调用者感知不到远程调用的逻辑。
+**rpc 是什么？就是socket 加动态代理。**
+
+### dubbo
+
+
+## Elasticsearch
