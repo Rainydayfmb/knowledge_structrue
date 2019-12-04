@@ -242,3 +242,8 @@ jedi实例不是线程安全的原因：
 
 2.Redis配置哨兵模式
 ![avatar](https://upload-images.jianshu.io/upload_images/11320039-3f40b17c0412116c.png?imageMogr2/auto-orient/strip|imageView2/2/w/747)
+
+## Hbase
+
+
+## Elasticsearch

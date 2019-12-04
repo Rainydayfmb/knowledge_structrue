@@ -162,7 +162,7 @@ class Solution {
 输出：7 -> 0 -> 8
 原因：342 + 465 = 807
 
-Solution:
+**Solution**:
 ```Java
 /**
  * Definition for singly-linked list.
@@ -202,5 +202,102 @@ class Solution {
 }
 ```
 
+**70.爬楼梯**
+假设你正在爬楼梯。需要 n 阶你才能到达楼顶。
+每次你可以爬 1 或 2 个台阶。你有多少种不同的方法可以爬到楼顶呢？
+注意：给定 n 是一个正整数。
+
+**示例 1：**
+```java
+输入： 2
+输出： 2
+解释： 有两种方法可以爬到楼顶。
+1.  1 阶 + 1 阶
+2.  2 阶
+```
+**示例 2：**
+```java
+输入： 3
+输出： 3
+解释： 有三种方法可以爬到楼顶。
+1.  1 阶 + 1 阶 + 1 阶
+2.  1 阶 + 2 阶
+3.  2 阶 + 1 阶
+```
+**思路**
+n阶台阶的走法，由n-1种台阶的走法加上n-2种台阶的走法
+**Solution**
+```Java
+class Solution {
+    public int climbStairs(int n) {
+        if(n == 1){
+            return 1;
+        }
+        if(n == 2){
+            return 2;
+        }
+        int one = 1;
+        int two = 2;
+        for(int i =3;i<=n;i++){
+            int temp = one;
+            one = two;
+            two = temp + two;
+        }
+        return two;
+    }
+}
+```
+
+**1.两数相加**
+**描述**
+给定一个整数数组 nums 和一个目标值 target，请你在该数组中找出和为目标值的那 两个 整数，并返回他们的数组下标。
+你可以假设每种输入只会对应一个答案。但是，你不能重复利用这个数组中同样的元素。
+
+**示例**
+```Java
+给定 nums = [2, 7, 11, 15], target = 9
+因为 nums[0] + nums[1] = 2 + 7 = 9
+所以返回 [0, 1]
+```
+
+**Solution**
+```Java
+class Solution {
+    public int[] twoSum(int[] nums, int target) {
+        for(int i=0;i<nums.length;i++){
+            for(int j=i+1;j<nums.length;j++){
+                if(nums[j] == target - nums[i]){
+                    return new int[]{i,j};
+                }
+            }
+        }
+        return new int[2];
+    }
+}
+```
 
 linux 统计相当uri的多少，并排序。如何解决hash函数的相关问题，hash碰撞的相关问题。
+
+
+
+反转链表
+```Java
+class ListNode{
+  int val;
+  ListNode next;
+  public ListNode(){
+    ...
+  }
+}
+
+
+class Solution {
+    public ListNode reverse(ListNode head){
+
+    }
+}
+
+
+
+
+```
