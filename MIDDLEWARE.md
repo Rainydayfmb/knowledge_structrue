@@ -657,13 +657,550 @@ Raft 是能够实现分布式系统强一致性的算法，每个系统节点有
 
 
 
-## RPC
-RPC要解决的两个问题：
-1. 解决分布式系统中，服务之间的调用问题。
-2. 远程调用时，要能够像本地调用一样方便，让调用者感知不到远程调用的逻辑。
-**rpc 是什么？就是socket 加动态代理。**
+## 服务之RPC
+该章节[参考这里](https://juejin.im/post/5a5ee63d518825732914748c)
+### 相关背景
+随着业务的发展、用户量的增长，系统数量增多，调用依赖关系也变得复杂，为了确保系统高可用、高并发的要求，系统的架构也从单体时代慢慢迁移至服务SOA时代，**根据不同服务对系统资源的要求不同，我们可以更合理的配置系统资源，使系统资源利用率最大化**。
+![avatar](https://user-gold-cdn.xitu.io/2018/1/17/16102b35e64b0107?imageView2/0/w/1280/h/960/ignore-error/1)
+- **单一应用架构** 当网站流量很小时，只需一个应用，将所有功能都部署在一起，以减少部署节点和成本。此时，用于简化增删改查工作量的 数据访问框架(ORM) 是关键。
+- **垂直应用架构** 当访问量逐渐增大，单一应用增加机器带来的加速度越来越小，将应用拆成互不相干的几个应用，以提升效率。
+此时，用于加速前端页面开发的 Web框架(MVC) 是关键。
+- **分布式服务架构**
+当垂直应用越来越多，应用之间交互不可避免，将核心业务抽取出来，作为独立的服务，逐渐形成稳定的服务中心，使前端应用能更快速的响应多变的市场需求。此时，用于提高业务复用及整合的 分布式服务框架(RPC) 是关键。
+- **流动计算架构**
+当服务越来越多，容量的评估，小服务资源的浪费等问题逐渐显现，此时需增加一个调度中心基于访问压力实时管理集群容量，提高集群利用率。此时，用于提高机器利用率的 资源调度和治理中心(SOA) 是关键。
+
+### 服务带来的挑战
+系统的复杂度上升、服务依赖关系、服务性能监控、全链路日志、容灾、断路器、限流等。
+
+根据现在团队的业务系统情况，首先我们要**梳理出现存的问题是什**么：
+- 多种调用传输方式：HTTP方式、WebService方式；
+- 服务调用依赖关系：人工记录，查看代码分析；
+- 服务调用性能监控：日志记录，人工查看时间；
+- 服务与应用紧耦合：服务挂掉，应用无法可用；
+- 服务集群负载配置：Nginx配置，存在单点问题；
+
+在去选择技术框架时，技术框架最基本要解决上面现存问题，同时我们也要确认出我们的期望，**要达到的目标是什么**：
+- 支持当前业务需求，这是最最基本的条件；
+- 服务避免单点问题，去中心化；
+- 服务高可用、高并发，解耦服务依赖；
+- 服务通用化，支持异构系统调用服务；
+- 服务依赖关系自维护，可视化(阿里云AHAS)；
+- 服务性能监控自统计，可视化（鹰眼）；
+- 服务需自带注册、发现、健康检查、负载均衡等特性；
+- 开发人员关注度高，上手快，简单轻量，低侵入；
+
+#### mas(微服务)和soa(面向服务架构的区别和联系)
+[参考](https://blog.csdn.net/qq_15071263/article/details/84027556)
+##### 相似之处
+- 都是面向服务
+- 都是基于HTTP协议
+
+##### 区别和联系
+传统的SOA 一般是大而全的单块架构，MSA 是很分散的服务。
+一般情况下，SOA需要对整个系统进行规范约束，但是MSA的每个服务都可以有自己的开发语言和开发方式，灵活性比SOA更高。
+
+###### 基于SOA的架构
+1、易于部署，只需要扔war包就可以了
+2、易于伸缩，只需要在负载均衡下部署应用的拷贝即可
+3、拥有较为庞大的代码库，在理解业务时，会造成困扰
+4、当项目随着时间的变化越来越大的时候，IDE的速度会变慢
+5、Web容器超载，应用变大时，Web容器的启动时间变长
+6、在持续部署上存在问题，当你只需要更新某一个组件时，必须重新部署整个应用
+7、伸缩性不好，单块架构只能在一个维度伸缩
+8、难以调整开发规模
+9、需要对一个技术栈长期投入，比如使用Java，那么脱离JVM，Java的开发环境就不能给项目开发组件，并且，项目的迁移也受限于语言和框架层面，或者面临技术升级时，在某些情况下不得不重写整个应用
+
+##### 基于微服务的架构
+在优点上
+1、每个微服务都相对较小
+2、易于开发者理解
+3、IDE反应更快，开发更搞笑
+4、Web 容器启动更快
+5、每个服务可以独立开发，部署
+6、易于伸缩开发组织架构
+7、提升故障隔离
+8、消除了单一技术栈的长期投入
+
+在缺点上
+1、需要分布式系统发额外复杂度
+2、测试更加困难
+3、实现跨服务的用例需要开发者之间的细致协作
+4、生产环境的部署复杂度增加
+5、更大的内存开销
+
+**两者之间最关键的区别在于**，微服务专注于以自治的方式产生价值。但是两种架构背后的意图是不同的：SOA尝试将应用集成，一般采用中央管理模式来确保各应用能够交互运作。微服务尝试部署新功能，快速有效地扩展开发团队。它着重于分散管理、代码再利用与自动化执行。
+
+功能 | SOA | 微服务
+:-: | :-: | :-:
+组件大小 | 大块业务逻辑 | 单独任务或小块业务逻辑
+耦合 | 通常松耦合| 总是松耦合
+公司架构 | 任何类型 | 小型、专注于功能交叉的团队
+管理 | 着重中央管理 | 着重分散管理
+目标 | 确保应用能够交互操作 | 执行新功能，快速拓展开发团队
+
+微服务并不是一种新思想的方法。它更像是一种思想的精炼，一种SOA的精细化演进，并且更好地利用了先进的技术以解决问题，例如容器与自动化等。所以对于我们 去选择服务技术框架时，并不是非黑即白，而是针对SOA、MSA两种架构设计同时要考虑到兼容性，对于现有平台情况架构设计，退则守SOA，进则攻MSA，阶段性选择适合的。
+
+### 框架
+现在业界比较成熟的服务框架有很多，比如：Hessian、CXF、Dubbo、Dubbox、Spring Cloud、gRPC、thrift等技术实现，都可以进行远程调用，具体技术实现优劣参考以下分析，这也是具体在技术方案选择过程中的重要依据。
+
+#### 服务框架对比
+**dubbo**
+  是阿里巴巴公司开源的一个Java高性能优秀的服务框架，使得应用可通过高性能的 RPC 实现服务的输出和输入功能，可以和 Spring框架无缝集成。
+
+- Dubbox和Dubbo本质上没有区别，名字的含义扩展了Dubbo而已，以下扩展出来的功能，也是选择Dubbox很重要的考察点。
+- 支持REST风格远程调用（HTTP + JSON/XML)；
+- 支持基于Kryo和FST的Java高效序列化实现；
+- 支持基于Jackson的JSON序列化；
+- 支持基于嵌入式Tomcat的HTTP remoting体系；
+- 升级Spring至3.x；
+- 升级ZooKeeper客户端；
+- 支持完全基于Java代码的Dubbo配置；
+
+**spring cloud**
+Spring Cloud完全基于Spring Boot，是一个非常新的项目。Spring Cloud 为开发者提供了在分布式系统（配置管理，服务发现，熔断，路由，微代理，控制总线，一次性token，全局琐，leader选举，分布式session，集群状态）中快速构建的工具，使用Spring Cloud的开发者可以快速的启动服务或构建应用。
+**缺点**:是项目很年轻，很少见到国内业界有人在生产上成套使用，一般都是只有其中一两个组件。
+![avatar](https://img-blog.csdn.net/20180312234753534?watermark/2/text/aHR0cDovL2Jsb2cuY3Nkbi5uZXQvcXFfMTUwMDEyMjk=/font/5a6L5L2T/fontsize/400/fill/I0JBQkFCMA==/dissolve/70)
+
+以上RPC框架功能比较：
+框架 | Hessian | Montan | rpcx | gRPC | Thrift |Dubbo|Dubbox| Spring Cloud
+:-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: | :-: |
+开发语言 | 跨语言 | Java | Go | 跨语言 | 跨语言 | Java | Java | Java
+分布式(服务治理) | × | √ | √ | × | × | √ | √ | √
+多序列化框架支持	|hessian|	√(支持Hessian2、Json,可扩展)	| √ |	×只支持protobuf)	|×(thrift格式)	|√|	√	|√
+多种注册中心|	×	|√|	√	|×|	×	|√|	√|	√
+管理中心	|×|	√	|√|	×	|×|	√	|√	|√
+跨编程语言	|√	|×(支持php client和C server)	|×|	√|	√	|×|	×	|×
+支持REST	|×	|×	|×	|×|	×	|×	| √	|√
+关注度	|低	|中	|低	|中	|中|	中	|高	|中
+上手难度	|低|	低	|中	|中	|中	|低	|低	|中
+运维成本	|低	|中	|中	|中	|低	|中	|中	|中
+开源机构	|Caucho	|Weibo	|Apache	|Google	|Apache	|Alibaba	|Dangdang	|Apache
+
+**实际场景中的选择**
+
+- Spring Cloud：Spring全家桶，用起来很舒服，只有你想不到，没有它做不到。可惜因为发布的比较晚，国内还没出现比较成功的案例，大部分都是试水，不过毕竟有Spring作背书，还是比较看好。
+- Dubbox：相对于Dubbo支持了REST，估计是很多公司选择Dubbox的一个重要原因之一，但如果使用Dubbo的RPC调用方式，服务间仍然会存在API强依赖，各有利弊，懂的取舍吧。
+- Thrift：如果你比较高冷，完全可以基于Thrift自己搞一套抽象的自定义框架吧。
+- Montan：可能因为出来的比较晚，目前除了新浪微博16年初发布的，
+- Hessian：如果是初创公司或系统数量还没有超过5个，推荐选择这个，毕竟在开发速度、运维成本、上手难度等都是比较轻量、简单的，即使在以后迁移至SOA，也是无缝迁移。
+- rpcx/gRPC：在服务没有出现严重性能的问题下，或技术栈没有变更的情况下，可能一直不会引入，即使引入也只是小部分模块优化使用。
 
 ### dubbo
+而对于远程调用如果没有分布式的需求，其实是不需要用这么重的框架，只有在分布式的时候，才有Dubbo这样的分布式服务框架的需求，说白了就是个远程服务调用的分布式框架，**其重点在于分布式的治理。**
 
+#### dubbo的核心功能
+1.**Remoting:远程通讯**，提供对多种NIO框架抽象封装，包括“同步转异步”和“请求-响应”模式的信息交换方式。
+2.**Cluster: 服务框架**，提供基于接口方法的透明远程过程调用，包括多协议支持，以及软负载均衡，失败容错，地址路由，动态配置等集群支持。
+3.**Registry: 服务注册中心**，基于注册中心目录服务，使服务消费方能动态的查找服务提供方，使地址透明，使服务提供方可以平滑增加或减少机器。
+
+#### dubbo的组件角色
+![avatar](https://user-gold-cdn.xitu.io/2018/3/20/16241d6d49a76c43?imageView2/0/w/1280/h/960/ignore-error/1)
+
+**调用关系说明：**
+1.服务容器Container负责启动，加载，运行服务提供者。
+2.服务提供者Provider在启动时，向注册中心注册自己提供的服务。
+3.服务消费者Consumer在启动时，向注册中心订阅自己所需的服务。
+4.注册中心Registry返回服务提供者地址列表给消费者，如果有变更，注册中心将基于长连接推送变更数据给消费者。
+5.服务消费者Consumer，从提供者地址列表中，基于软负载均衡算法，选一台提供者进行调用，如果调用失败，再选另一台调用。
+6.服务消费者Consumer和提供者Provider，在内存中累计调用次数和调用时间，定时每分钟发送一次统计数据到监控中心Monitor。
+![avatar](https://user-gold-cdn.xitu.io/2018/3/20/16241d6d49d9ccf0?imageView2/0/w/1280/h/960/ignore-error/1)
+
+#### dubbo的总体框架
+ubbo最大的特点是按照分层的方式来架构，使用这种方式可以使各个层之间解耦合（或者最大限度地松耦合）。所以，我们横向以分层的方式来看下Dubbo的架构，如图所示：
+![avatar](https://user-gold-cdn.xitu.io/2018/3/20/16241d6d49c35881?imageView2/0/w/1280/h/960/ignore-error/1)
+
+Dubbo框架设计一共划分了10个层，而最上面的Service层是留给实际想要使用Dubbo开发分布式服务的开发者实现业务逻辑的接口层。图中左边淡蓝背景的为服务消费方使用的接口，右边淡绿色背景的为服务提供方使用的接口， 位于中轴线上的为双方都用到的接口。
+
+- 配置层（Config）：对外配置接口，以ServiceConfig和ReferenceConfig为中心，可以直接new配置类，也可以通过Spring解析配置生成配置类。
+- 服务代理层（Proxy）：服务接口透明代理，生成服务的客户端Stub和服务器端Skeleton，以ServiceProxy为中心，扩展接口为ProxyFactory。
+- 服务注册层（Registry）：封装服务地址的注册与发现，以服务URL为中心，扩展接口为RegistryFactory、Registry和RegistryService。可能没有服务注册中心，此时服务提供方直接暴露服务。
+- 集群层（Cluster）：封装多个提供者的路由及负载均衡，并桥接注册中心，以Invoker为中心，扩展接口为Cluster、Directory、Router和LoadBalance。将多个服务提供方组合为一个服务提供方，实现对服务消费方来透明，只需要与一个服务提供方进行交互。
+- 监控层（Monitor）：RPC调用次数和调用时间监控，以Statistics为中心，扩展接口为MonitorFactory、Monitor和MonitorService。
+- 远程调用层（Protocol）：封将RPC调用，以Invocation和Result为中心，扩展接口为Protocol、Invoker和Exporter。Protocol是服务域，它是Invoker暴露和引用的主功能入口，它负责Invoker的生命周期管理。Invoker是实体域，它是Dubbo的核心模型，其它模型都向它靠扰，或转换成它，它代表一个可执行体，可向它发起invoke调用，它有可能是一个本地的实现，也可能是一个远程的实现，也可能一个集群实现。
+- 信息交换层（Exchange）：封装请求响应模式，同步转异步，以Request和Response为中心，扩展接口为Exchanger、ExchangeChannel、ExchangeClient和ExchangeServer。
+- 网络传输层（Transport）：抽象mina和netty为统一接口，以Message为中心，扩展接口为Channel、Transporter、Client、Server和Codec。
+- 数据序列化层（Serialize）：可复用的一些工具，扩展接口为Serialization、 ObjectInput、ObjectOutput和ThreadPool。
+
+从上图可以看出，Dubbo对于服务提供方和服务消费方，从框架的10层中分别提供了各自需要关心和扩展的接口，构建整个服务生态系统（服务提供方和服务消费方本身就是一个以服务为中心的）。
+
+**根据官方提供的，对于上述各层之间关系的描述，如下所示：**
+1.在RPC中，Protocol是核心层，也就是只要有Protocol + Invoker + Exporter就可以完成非透明的RPC调用，然后在Invoker的主过程上Filter拦截点。
+2.图中的Consumer和Provider是抽象概念，只是想让看图者更直观的了解哪些类分属于客户端与服务器端，不用Client和Server的原因是Dubbo在很多场景下都使用Provider、Consumer、Registry、Monitor划分逻辑拓普节点，保持统一概念。
+3.而Cluster是外围概念，所以Cluster的目的是将多个Invoker伪装成一个Invoker，这样其它人只要关注Protocol层Invoker即可，加上Cluster或者去掉Cluster对其它层都不会造成影响，因为只有一个提供者时，是不需要Cluster的。
+[dubbo之cluster层](https://segmentfault.com/a/1190000017089603)
+![avatar](https://upload-images.jianshu.io/upload_images/12016719-16d235b1ddf7b489.jpg?imageMogr2/auto-orient/strip|imageView2/2/w/550)
+**各节点关系：**
+- 这里的Invoker是Provider的一个可调用Service的抽象，Invoker封装了Provider地址及Service接口信息；
+- Directory代表多个Invoker，可以把它看成List，但与List不同的是，它的值可能是动态变化的，比如注册中心推送变更；
+- Cluster将Directory中的多个Invoker伪装成一个 Invoker，对上层透明，伪装过程包含了容错逻辑，调用失败后，重试另一个；
+- Router负责从多个Invoker中按路由规则选出子集，比如读写分离，应用隔离等；
+- LoadBalance负责从多个Invoker中选出具体的一个用于本次调用，选的过程包含了负载均衡算法，调用失败后，需要重选；
+- Cluster经过目录，路由，负载均衡获取到一个可用的Invoker，交给上层调用。
+
+4.Proxy层封装了所有接口的透明化代理，而在其它层都以Invoker为中心，只有到了暴露给用户使用时，才用Proxy将Invoker转成接口，或将接口实现转成Invoker，也就是去掉Proxy层RPC是可以Run的，只是不那么透明，不那么看起来像调本地服务一样调远程服务。
+
+5.而Remoting实现是Dubbo协议的实现，如果你选择RMI协议，整个Remoting都不会用上，Remoting内部再划为Transport传输层和Exchange信息交换层，Transport层只负责单向消息传输，是对Mina、Netty、Grizzly的抽象，它也可以扩展UDP传输，而Exchange层是在传输层之上封装了Request-Response语义。
+6.Registry和Monitor实际上不算一层，而是一个独立的节点，只是为了全局概览，用层的方式画在一起。
+
+#### 服务调用流程
+![avatar](https://user-gold-cdn.xitu.io/2018/3/20/16241d6d49cc5515?imageView2/0/w/1280/h/960/ignore-error/1)
+
+#### 注册/注销服务
+![avatar](https://user-gold-cdn.xitu.io/2018/3/20/16241d6d49b32422?imageView2/0/w/1280/h/960/ignore-error/1)
+
+#### 订阅/取消服务
+![avatar](https://user-gold-cdn.xitu.io/2018/3/20/16241d6d49a8c8d2?imageView2/0/w/1280/h/960/ignore-error/1)
+
+#### dubbo的工作流程
+- 第一步：provider 向注册中心去注册
+- 第二步：consumer 从注册中心订阅服务，注册中心会通知 consumer 注册好的服务
+- 第三步：consumer 调用 provider
+- 第四步：consumer 和 provider 都异步通知监控中心
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/dubbo-operating-principle.png)
+
+从上到下：服 配 代 注 聚 监 协 交 传 序
+
+#### dubbo 支持哪些通信协议？支持哪些序列化协议？说一下 Hessian 的数据结构？PB 知道吗？为什么 PB 的效率是最高的？
+
+**序列化**:就是把数据结构或者是一些对象，转换为二进制串的过程。
+**反序列化**：是将在序列化过程中所生成的二进制串转换成数据结构或者对象的过程。
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/serialize-deserialize.png)
+
+##### dubbo支持不同的通信协议
+- dubbo
+认就是走 dubbo 协议，单一长连接，进行的是 NIO 异步通信，基于 hessian 作为序列化协议。使用的场景是：传输数据量小（每次请求在 100kb 以内），但是并发量很高。
+为了要支持高并发场景，一般是服务提供者就几台机器，但是服务消费者有上百台，可能每天调用量达到上亿次！此时用长连接是最合适的，就是跟每个服务消费者维持一个长连接就可以，可能总共就 100 个连接。然后后面直接基于长连接 NIO 异步通信，可以支撑高并发请求。
+
+**长连接**，通俗点说，就是建立连接过后可以持续发送请求，无须再建立连接。
+**短连接**，每次要发送请求之前，需要先重新建立一次连接。
+
+###### dubbo通信模型
+[nio单一长连接--dubbo通信模型实现](https://www.jianshu.com/p/13bef2795c44)
+**BIO通信缺陷**
+BIO的完整连接示意图如下：
+![avatar](https://upload-images.jianshu.io/upload_images/3727888-76b1222bc2d3a0c3.jpg?imageMogr2/auto-orient/strip|imageView2/2/w/920/format/webp)
+
+- 缺陷一、IO阻塞
+可以看出，在BIO中，除了建立连接比较耗时之外，在客户端将数据传输到服务端之前，服务端的IO（输入流）阻塞，然后在服务端将返回值传输回来之前，客户端的IO（输入流）阻塞。**也就是说在一次RPC调用开始到完成之前，这个连接一直被此次调用所占用，但是实际上这次调用中，真正需要网络连接的只有中间的数据传输过程，在客户端写出和服务端读取并执行远端方法这两个时间点，其实网络连接是空闲的**。这就是BIO连接中浪费了网络资源的地方。
+
+- 缺陷二、大量连接
+1. 由于BIO的IO阻塞，导致每次RPC调用会占用一个连接。而正因为如此，为了减少频繁创建连接消耗的时间，引入了连接池（此处的连接池指普通的HTTP连接池，非异步连接池）的概念，连接池解决了频繁创建连接的资源消耗，但是没有解决根本性的阻塞问题。而且在服务消费者（客户端）数量远大于服务提供者（服务端）数量的时候，会导致服务提供者建立了大量的连接，而本身由于硬件资源的限制，单机最大连接数是有限的（这个限制以前是1w，也就是以前的C10K问题，据说近几年已经提升至50万个连接），所以在服务消费者过多，而服务提供者数量过少的情况下，服务提供者有因为过多的连接而被拖垮的风险（这需要极大的并发数，每秒上百万次的调用）。当然，要解决这个问题，增加机器，从而增加服务提供者数量是可以解决的，但是没有充分利用单机性能。
+2. 建立大量连接的另一个弊端，是操作系统频繁的线程上下文切换，因为连接数过多，线程切换频繁，会消耗大量的资源，而且这些切换可能不是必要的。比如当前建立了大量的连接，可能大部分处于阻塞状态，根本没有挨个挨个切换的必要。但是因为操作系统任务调度时并不会忽略阻塞状态的线程，所以造成浪费。
+
+**NIO单一长连接实现分析**
+*长连接宏观简介*
+![avatar](https://upload-images.jianshu.io/upload_images/3727888-2632e469660f2db2.png?imageMogr2/auto-orient/strip|imageView2/2/w/1200/format/webp)
+NIO由三种角色组成，Selector、SocketChannel、Buffer。
+
+*SocketChannel*: 相当于BIO中的Socket，分为SocketChannel和ServerSocketChannel两种，是真正建立连接并传输数据的管道。这个管道不同于BIO的Socket的点就是，这个管道可以被多个线程共用，线程A使用这个管道写出数据了之后，线程B还可以使用这个管道写出数据，不再被某一次调用所独占。所以就可以不需要像BIO一样建立那么多的连接，一个客户端的一个连接就够了（当然，实际应用中因为机器都是多核，实际上建立核数个连接个人感觉是比较好的）。
+
+*Buffer*:是用来与SocketChannel互通数据的对象，本质上是一块内存区域。SocketChannel是不支持直接读写数据的，所有的读写操作必须通过Buffer来实现。值得一提的是，我们经常说在JVM中有的时候会使用虚拟机之外的内存，说的就是NIO中的Buffer，在分配内存的时候可以选择使用虚拟机外内存，减少数据的复制。
+
+*Selector*:是用来监控SocketChannel的事件的，其实是实现非阻塞的关键。NIO是基于事件的，将BIO中的流式传输改为了事件机制。BIO中，一个连接拥有一个输入／输出流，只要数据传输完成，流就可以读取数据。在NIO中，Selector定义了四种事件，OP_READ、OP_WRITE、OP_CONNECT、OP_ACCEPT。当服务端或者客户端收到写入完成的一次数据时，会触发OP_READ事件，此时可以从连接中读取数据。同理，当可以往连接中写入数据的时候，触发OP_WRITE事件（但是一般情况下这个事件没有必要，因为连接一般都是可写的）。客户端与服务端建立连接的时候，客户端会收到OP_CONNECT事件，而服务端会触发OP_ACCEPT事件。通过这一系列事件将数据的发送与读写解耦，实现异步调用。将一个SocketChannel+一个事件绑定在一个Selector上，Selector本质上是轮询每一个SocketChannel，如果没有事件触发，那么线程阻塞，如果有事件触发，返回对应的SocketChannel，以便进行后续的处理。
+
+**使用NIO设计RPC调用分析**
+前面提到，由于NIO的SocketChannel是非阻塞的，所以不再需要连接池，使用一个连接就够了。
+![avatar](https://upload-images.jianshu.io/upload_images/3727888-2a3e097144cd7a11?imageMogr2/auto-orient/strip|imageView2/2/w/1072/format/webp)
+
+但是如果真的使用NIO来进行RPC调用的话，会有数据和调用方对应不上的问题，如下图：
+![avatar](https://upload-images.jianshu.io/upload_images/3727888-a93021a1bbf552f8.png?imageMogr2/auto-orient/strip|imageView2/2/w/1200/format/webp)
+每次调用的返回值必须与调用方对应上，为此，Dubbo的设计是给每个请求设计一个请求id，在发送请求与发送返回值时都带上这个id。详细思路如下图：
+![avatar](https://upload-images.jianshu.io/upload_images/3727888-098e4b3fb2b736f2.jpg?imageMogr2/auto-orient/strip|imageView2/2/w/1200/format/webp)
+业务线程在发出请求之前，需要存储一个请求对象，同时挂起相应的业务线程（挂起不会被任务调度，所以不存在线程切换消耗），这个请求对象包含了此次请求的id，然后在获取服务端返回的数据的时候，解析出这个id，通过这个id取出请求对象，并唤醒对应的线程。
+
+#### 如何基于dubbo进行服务治理、服务降级、失败重试以及超时重试
+**服务治理**
+1.调用链路自动生成
+一个大型的分布式系统，或者说是用现在流行的微服务框架来说，分布式系统由大量的服务组成。那么这些服务之间是如何相互调用的？调用链路是什么？
+需要基于dubbo做的分布式系统中，对各个服务之间的调用自动记录下来，然后自动将各个服务之间的依赖关系和调用链路生成出来，做成一张图，现实出来，这样大家才可以看到。
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/dubbo-service-invoke-road.png)
+
+2.服务访问压力以及时长统计
+需要自动统计各个接口和服务之间的调用次数以及访问延时，而且要分成两个级别
+- 一个级别是接口粒度，就是每个服务的每个接口每天被调用多少次，TP50h/TP90/TP99，三个档次的请求延时分别是多少；
+**tp的含义**：指在一段时间内，统计该方法每次调用所消耗的时间，并将这些时间按从小到大的顺序进行排序，并取出结果为：总次数*指标数=对应TP指标的序号，再根据序号取出对应排序好的时间，即TP指标值。
+- 第二个级别从源头的入口开始，一个完整的请求链路经过几十个服务之后，完成一次请求，每天全链路走多少次，全链路的请求延时的TP50/TP90/TP99分别是多少。
+
+这些东西都搞定了之后，后面才可以看到当前系统的主要压力在哪，如何来进行优化和扩容。
+
+3.其他
+- 服务分层（避免循环依赖）
+- 调用链路失败监控和报警
+- 服务鉴权
+- 每个服务的可用性监控（接口调用的成功率？几个9？99.99%,99.9%,99%）
+
+**服务降级**
+比如说服务A调用服务B,结果服务B挂了，服务A重试几次后调用服务B还是不行，那么直接降级，走一个备用的逻辑，给客户返回响应。
+
+**失败重试和超时重试**
+所谓失败重试，就是 consumer 调用 provider 要是失败了，比如抛异常了，此时应该是可以重试的，或者调用超时了也可以重试。
+
+//todo dubbo的filter 涉及到dubbo的责任链模式
+[参考](https://www.jianshu.com/p/c5ebe3e08161)
+
+**分布式接口的顺序性如何保证**
+首先，个人建议是，你们从业务逻辑上设计的这个系统最好不要有这种顺序性的保证，因为一旦引入顺序性保证，比如适应分布式锁，会导致系统复杂度上升，而且会带来效率低下，热点数据压力过大的问题。
+
+下面我给个我们用过的方案吧，简单来说，首先你得用 dubbo 的一致性 hash 负载均衡策略，将比如某一个订单 id 对应的请求都给分发到某个机器上去，接着就是在那个机器上，因为可能还是多线程并发执行的，你可能得立即将某个订单 id 对应的请求扔一个内存队列里去，强制排队，这样来确保他们的顺序性。
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/distributed-system-request-sequence.png)
+
+但是这样引发的后续问题就很多，比如说要是某个订单对应的请求特别多，造成某台机器成热点怎么办？解决这些问题又要开启后续一连串的复杂技术方案......曾经这类问题弄的我们头疼不已，所以，还是建议什么呢？
+
+最好是比如说刚才那种，一个订单的插入和删除操作，能不能合并成一个操作，就是一个删除，或者是其它什么，避免这种问题的产生。
 
 ## Elasticsearch
+
+### ES简介
+[参考](https://blog.csdn.net/laoyang360/article/details/79293493?spm=a2c4e.10696291.0.0.6c5019a4RdoGp6)
+#### ELK stack
+ELK stack由最早期的最核心的Elasticsearch ,集合Logstash,kibana,beats等发展而来，形成ELK stack体系。如下图所示
+![avatar](https://yqfile.alicdn.com/7cc0ee14e7d1098ccf448cfff37309ef475c6221.png)
+
+#### Elasticsearch认知
+Elasticsearch 为开源的，分布式的，基于restful API、支持PB甚至更改数量级的搜索引擎工具。
+相对于mysql,给出如下的对应关系表会更好的理解一些：
+![avatar](https://yqfile.alicdn.com/e164c17310623ce6dfdf169e0c88368772ff343f.png)
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/es-index-type-mapping-document-field.png)
+
+##### Elasticsearch 比传统的关系性数据库(oracle,mysqls)非关系型数据库（mongodb）对比
+如下是传统的关系型数据库（如Oracle、MySQL）、非关系型的数据库（如 Mongo）所做不到的：
+1.传统的关系型数据库虽然能支持类型“like 待检索词”模糊语句匹配，但无法进行全文检索（分词检索）。
+2.非关系型数据库 Mongo 虽能进行简单的全文检索，但对中文支持的不好、数据量大性能会有问题，这点是在实际应用中总结出的。
+**mongodb的全文检索原理**
+[mongodb的全文检索依靠的是标签和索引](http://www.voidcn.com/article/p-zlcjehfe-de.html)
+
+#### Logstash认知
+[logstash最佳实践](https://doc.yonyoucloud.com/doc/logstash-best-practice-cn/input/file.html)
+可以把 Logstash 理解成流入、流出 Elasticsearch 的传送带。
+
+支持：不同类型的数据或实施数据流经过 Logstash 写入 ES 或者从 ES 中读出写入文件或对应的实施数据流。包括但不限于：
+- 本地或远程文件；
+- Kafka 实时数据流——核心插件有 logstashinputkafka/logstashoutputkafka；
+- MySQL、Oracle 等关系型数据库——核心插件有 logstashinputjdbc/logstashouputjdbc；
+- Mongo 非关系型数据库——核心插件有 logstashinputmongo/logstashoutputmongo；
+- Redis 数据流；
+
+#### kibana认知
+Kibana 是 ES 大数据的图形化展示工具。集成了 DSL 命令行查看、数据处理插件、继承了 x-pack（收费）安全管理插件等。
+
+#### Beats 认知
+
+Beats 是一个开源的用来构建轻量级数据汇集的平台，可用于将各种类型的数据发送至 Elasticsearch 与 Logstash。
+
+#### ELK stack
+**场景一：使用 ES 作为业务系统的后端。**
+此时，ES 的作用类似传统业务系统中的 MySQL、PostgreSQL、Oracle 或者 Mongo 等的基础关系型数据库或非关系型数据库的作用。
+
+我们举例说明。使用 ES 对基础文档进行检索操作，如将传统的 word 文档、PDF 文档、PPT 文档等通过 Openoffice 或者 pdf2htmlEX 工具转换为 HTML，再将 HTML 以JSON 串的形式录入到 ES，以对外提供检索服务。
+
+**场景二：在原有系统中增加 ES、Logstash、Kibana等。**
+
+原有的业务系统中存在 MySQL、Oracle、Mongo 等基础数据，但想实现全文检索服务，就在原有业务系统基础的加上一层 ELK。
+
+举例一，将原有系统中 MySQL 中的数据通过 logstashinputjdbc 插件导入到 ES 中，并通过 Kibana 进行图形化展示。
+
+举例二，将原有存储在 Hadoop HDFS 中的数据导入到 ES 中，对外提供检索服务。
+
+**场景三：使用 ELK Stack 结合现有工具对外提供服务。**
+
+举例一，日志检索系统。将各种类型的日志通过 Logstash 导入 ES 中，通过 Kibana 或者 Grafana 对外提供可视化展示。
+
+举例二，通过 Flume 等将数据导入 ES 中，通过 ES 对外提供全文检索服务。
+
+**场景四：其他综合业务场景**
+
+主要借助 ES 强大的全文检索功能实现，如分页查询、各类数据结果的聚合分析、图形化展示（饼图、线框图、曲线图等）。
+
+举例说明，像那些结合实际业务的场景，如安防领域、金融领域、监控领域等的综合应用。
+
+**大量数据的写入和读取解决方案**
+1、存储数据时按有序存储；
+2、将数据和索引分离；
+3、压缩数据；
+
+#### ES的定义
+ES=elaticsearch简写， Elasticsearch是一个开源的高扩展的分布式全文检索引擎，它可以近乎实时的存储、检索数据；本身扩展性很好，可以扩展到上百台服务器，处理PB级别的数据。
+Elasticsearch也使用Java开发并使用Lucene作为其核心来实现所有索引和搜索的功能，但是它的目的是通过简单的RESTful API来隐藏Lucene的复杂性，从而让全文搜索变得简单。
+**数据模型**
+![avatar](https://upload-images.jianshu.io/upload_images/1604849-f0256300e34c6ccf.png?imageMogr2/auto-orient/strip|imageView2/2/w/973)
+
+#### ES的核心概念
+1）Cluster：集群。
+ES可以作为一个独立的单个搜索服务器。不过，为了处理大型数据集，实现容错和高可用性，ES可以运行在许多互相合作的服务器上。这些服务器的集合称为集群。
+
+2）Node：节点。
+形成集群的每个服务器称为节点。
+
+3）Shard：分片。
+当有大量的文档时，由于内存的限制、磁盘处理能力不足、无法足够快的响应客户端的请求等，一个节点可能不够。这种情况下，数据可以分为较小的分片。每个分片放到不同的服务器上。
+当你查询的索引分布在多个分片上时，ES会把查询发送给每个相关的分片，并将结果组合在一起，而应用程序并不知道分片的存在。即：这个过程对用户来说是透明的。
+
+4）Replia：副本。
+为提高查询吞吐量或实现高可用性，可以使用分片副本。
+副本是一个分片的精确复制，每个分片可以有零个或多个副本。ES中可以有许多相同的分片，其中之一被选择更改索引操作，这种特殊的分片称为主分片。
+当主分片丢失时，如：该分片所在的数据不可用时，集群将副本提升为新的主分片。
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/es-cluster.png)
+你搞一个索引，这个索引可以拆分成多个 shard，每个 shard 存储部分数据。拆分多个 shard 是有好处的:
+**一是支持横向扩展**，比如你数据量是 3T，3 个 shard，每个 shard 就 1T 的数据，若现在数据量增加到 4T，怎么扩展，很简单，重新建一个有 4 个 shard 的索引，将数据导进去；
+**二是提高性能**，数据分布在多个 shard，即多台服务器上，所有的操作，都会在多台机器上并行分布式执行，提高了吞吐量和性能。
+
+接着就是这个 shard 的数据实际是有多个备份，就是说每个 shard 都有一个 primary shard，负责写入数据，但是还有几个 replica shard。primary shard 写入数据之后，会将数据同步到其他几个 replica shard 上去。
+通过这个 replica 的方案，每个 shard 的数据都有多个备份，如果某个机器宕机了，没关系啊，还有别的数据副本在别的机器上呢。高可用了吧。
+
+
+#### ES要解决的问题
+1）检索相关数据；
+2）返回统计结果；
+3）速度要快。
+
+#### ES的工作原理
+当ElasticSearch的节点启动后，它会利用多播(multicast)(或者单播，如果用户更改了配置)寻找集群中的其它节点，并与之建立连接。这个过程如下图所示：
+![avatar](https://img-blog.csdn.net/20160818205953345)
+
+##### ES的写入过程
+- 客户端选择一个 node 发送请求过去，这个 node 就是 coordinating node（协调节点）。
+- coordinating node 对 document 进行路由，将请求转发给对应的 node（有 primary shard）。
+- 实际的 node 上的 primary shard 处理请求，然后将数据同步到 replica node。
+- coordinating node 如果发现 primary node 和所有 replica node 都搞定之后，就返回响应结果给客户端。
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/es-write.png)
+
+#### ES的读数据过程
+可以通过 doc id 来查询，会根据 doc id 进行 hash，判断出来当时把 doc id 分配到了哪个 shard 上面去，从那个 shard 去查询。
+
+- 客户端发送请求到任意一个 node，成为 coordinate node。
+- coordinate node 对 doc id 进行哈希路由，将请求转发到对应的 node，此时会使用 round-robin 随机轮询算法，在 primary shard 以及其所有 replica 中随机选择一个，让读请求负载均衡。
+- 接收请求的 node 返回 document 给 coordinate node。
+- coordinate node 返回 document 给客户端。
+
+#### es 搜索数据过程
+es 最强大的是做全文检索，就是比如你有三条数据：
+```java
+java真好玩儿啊
+java好难学啊
+j2ee特别牛
+```
+你根据 java 关键词来搜索，将包含 java的 document 给搜索出来。es 就会给你返回：java真好玩儿啊，java好难学啊。
+- 客户端发送请求到一个 coordinate node。
+- 协调节点将搜索请求转发到所有的 shard 对应的 primary shard 或 replica shard，都可以。
+- query phase：每个 shard 将自己的搜索结果（其实就是一些 doc id）返回给协调节点，由协调节点进行数据的合并、排序、分页等操作，产出最终结果。
+- fetch phase：接着由协调节点根据 doc id 去各个节点上拉取实际的 document 数据，最终返回给客户端。
+
+写请求是写入 primary shard，然后同步给所有的 replica shard；读请求可以从 primary shard 或 replica shard 读取，采用的是随机轮询算法。
+
+#### 更新操作
+更新操作其实就是先读然后写
+![avatar](https://upload-images.jianshu.io/upload_images/1604849-c438f2d30c8c8fbd.png?imageMogr2/auto-orient/strip|imageView2/2/w/910/format/webp)
+更新流程：
+
+客户端将更新请求发给Node1
+1.Node1根据文档ID(_id字段)计算出该文档属于分片shard0,而其主分片在Node上，于是将请求路由到Node3
+2.Node3从p0读取文档，改变source字段的json内容，然后将修改后的数据在P0重新做索引。如果此时该文档被其他进程修改，那么将重新执行3步骤，这个过程如果超过retryon_confilct设置的重试次数，就放弃。
+3.如果Node3成功更新了文档，它将并行的将新版本的文档同步到Node1 Node2的副本分片上重新建立索引，一旦所有的副本报告成功，Node3向被请求的Node1节点返回成功，然后Node1向client返回成功
+
+#### 更新和删除
+由于segments是不变的，所以文档不能从旧的segments中删除，也不能在旧的segments中更新来映射一个新的文档版本。取之的是，每一个提交点都会包含一个.del文件，列举了哪一个segment的哪一个文档已经被删除了。 当一个文档被”删除”了，它仅仅是在.del文件里被标记了一下。被”删除”的文档依旧可以被索引到，但是它将会在最终结果返回时被移除掉。
+
+文档的更新同理：当文档更新时，旧版本的文档将会被标记为删除，新版本的文档在新的segment中建立索引。也许新旧版本的文档都会本检索到，但是旧版本的文档会在最终结果返回时被移除。
+
+
+#### 写数据底层原理
+![avatar](https://raw.githubusercontent.com/doocs/advanced-java/master/images/es-write-detail.png)
+[Elasticsearch基础整理](https://www.jianshu.com/p/e8226138485d)
+- **write**:
+先写入内存 buffer，在 buffer 里的时候数据是搜索不到的；同时将数据写入 translog 日志文件。
+![avatar](https://upload-images.jianshu.io/upload_images/1604849-de89cebe9a0976da.png?imageMogr2/auto-orient/strip|imageView2/2/w/627/format/webp)
+这时候还不能会被检索到，而数据必须被refresh到segment后才能被检索到。
+- **refresh**:
+默认情况下es每隔1s执行一次refresh,太耗性能，可以通过index.refresh_interval来修改这个刷新时间间隔。
+整个refresh具体做了如下事情:
+1.所有在内存缓冲区的文档被写入到一个新的segment中，但是没有调用fsync，因此数据有可能丢失,此时segment首先被写到内核的文件系统中缓存os cache中
+2.segment被打开是的里面的文档能够被见检索到
+3.清空内存缓冲区in-memory buffer，清空后如下图
+![avatar](https://upload-images.jianshu.io/upload_images/1604849-5e6ef487fe33a943.png?imageMogr2/auto-orient/strip|imageView2/2/w/912/format/webp)
+*补充*：
+1.每隔 1 秒钟，es 将 buffer 中的数据写入一个新的 segment file，每秒钟会产生一个新的磁盘文件 segment file，这个 segment file 中就存储最近 1 秒内 buffer 中写入的数据。
+2.但是如果 buffer 里面此时没有数据，那当然不会执行 refresh 操作，如果 buffer 里面有数据，默认 1 秒钟执行一次 refresh 操作，刷入一个新的 segment file 中。
+3.操作系统里面，磁盘文件其实都有一个东西，叫做 os cache，即操作系统缓存，就是说数据写入磁盘文件之前，会先进入 os cache，先进入操作系统级别的一个内存缓存中去。只要 buffer 中的数据被 refresh 操作刷入 os cache中，这个数据就可以被搜索到了。
+- **flush**:
+随着translog文件越来越大时要考虑把内存中的数据刷新到磁盘中，这个过程叫flush
+1.把所有在内存缓冲区中的文档写入到一个新的segment中
+2.清空内存缓冲区
+3.往磁盘里写入commit point信息
+4.文件系统的page cache(segments) fsync到磁盘
+5.删除旧的translog文件，因此此时内存中的segments已经写入到磁盘中,就不需要translog来保障数据安全了，flush后效果如下
+![avatar](https://upload-images.jianshu.io/upload_images/1604849-34ea52e9cc4409e5.png?imageMogr2/auto-orient/strip|imageView2/2/w/582/format/webp)
+- **segment合并**：
+通过每隔一秒的自动刷新机制会创建一个新的segment，用不了多久就会有很多的segment。segment会消耗系统的文件句柄，内存，CPU时钟。最重要的是，每一次请求都会依次检查所有的segment。segment越多，检索就会越慢。
+ES通过在后台merge这些segment的方式解决这个问题。小的segment merge到大的
+这个过程也是那些被”删除”的文档真正被清除出文件系统的过程，因为被标记为删除的文档不会被拷贝到大的segment中。
+![avatar](https://upload-images.jianshu.io/upload_images/1604849-ea07c8a178cdb69e.png?imageMogr2/auto-orient/strip|imageView2/2/w/861/format/webp)
+1.当在建立索引过程中，refresh进程会创建新的segments然后打开他们以供索引。
+2.merge进程会选择一些小的segments然后merge到一个大的segment中。这个过程不会打断检索和创建索引。一旦merge完成，旧的segments将被删除。
+![avatar](https://upload-images.jianshu.io/upload_images/1604849-2cc44a497a148b1c.png?imageMogr2/auto-orient/strip|imageView2/2/w/799/format/webp)
+
+#### 倒排索引
+在搜索引擎中，每个文档都有一个对应的文档 ID，文档内容被表示为一系列关键词的集合。例如，文档 1 经过分词，提取了 20 个关键词，每个关键词都会记录它在文档中出现的次数和出现位置。
+
+那么，倒排索引就是关键词到文档 ID 的映射，每个关键词都对应着一系列的文件，这些文件中都出现了关键词。
+
+举个例子：
+有以下文档：
+DocId | Doc |
+:-: | :-:
+1   | 谷歌地图之父跳槽 Facebook
+2   | 谷歌地图之父加盟 Facebook
+3   | 谷歌地图创始人拉斯离开谷歌加盟 Facebook
+4   | 谷歌地图之父跳槽 Facebook 与 Wave 项目取消有关
+5   | 谷歌地图之父拉斯加盟社交网站 Facebook
+
+对文档进行分词之后，得到以下倒排索引。
+WordId | Word | DocIds
+:-: | :-: | :-:
+1	  |谷歌	 |1,2,3,4,5
+2	  |地图	 |1,2,3,4,5
+3	  |之父	 |1,2,4,5
+4	  |跳槽	 |1,4
+5	  |Facebook	|1,2,3,4,5
+6	  |加盟	 |2,3,5
+7	  |创始人 |3
+8	  |拉斯	  |3,5
+9	  |离开	  |3
+10	|与	  |4
+..	|..	   |..
+
+
+
+
+
+
+
+
+
+
+#### es实现高可用的原理
+es 集群多个节点，会自动选举一个节点为 master 节点，这个 master 节点其实就是干一些管理的工作的，比如维护索引元数据、负责切换 primary shard 和 replica shard 身份等。要是 master 节点宕机了，那么会重新选举一个节点为 master 节点。
+
+如果是非 master节点宕机了，那么会由 master 节点，让那个宕机节点上的 primary shard 的身份转移到其他机器上的 replica shard。接着你要是修复了那个宕机机器，重启了之后，master 节点会控制将缺失的 replica shard 分配过去，同步后续修改的数据之类的，让集群恢复正常。
+
+说得更简单一点，就是说如果某个非 master 节点宕机了。那么此节点上的 primary shard 不就没了。那好，master 会让 primary shard 对应的 replica shard（在其他机器上）切换为 primary shard。如果宕机的机器修复了，修复后的节点也不再是 primary shard，而是 replica shard。
+
+其实上述就是 ElasticSearch 作为分布式搜索引擎最基本的一个架构设计。
+
+5）全文检索。
+
+全文检索就是对一篇文章进行索引，可以根据关键字搜索，类似于mysql里的like语句。
+全文索引就是把内容根据词的意义进行分词，然后分别创建索引，例如”你们的激情是因为什么事情来的” 可能会被分词成：“你们“，”激情“，“什么事情“，”来“ 等token，这样当你搜索“你们” 或者 “激情” 都会把这句搜出来。
+
+#### ES特点和优势
+1）分布式实时文件存储，可将每一个字段存入索引，使其可以被检索到。
+2）实时分析的分布式搜索引擎。
+分布式：索引分拆成多个分片，每个分片可有零个或多个副本。集群中的每个数据节点都可承载一个或多个分片，并且协调和处理各种操作；
+负载再平衡和路由在大多数情况下自动完成。
+3）可以扩展到上百台服务器，处理PB级别的结构化或非结构化数据。也可以运行在单台PC上（已测试）
+4）支持插件机制，分词插件、同步插件、Hadoop插件、可视化插件等。
+
+#### ES在那些场景下面可以代替传动的db
+1.个人以为Elasticsearch作为内部存储来说还是不错的，效率也基本能够满足，在某些方面替代传统DB也是可以的，前提是你的业务不对操作的事性务有特殊要求；而权限管理也不用那么细，因为ES的权限这块还不完善。
+2.由于我们对ES的应用场景仅仅是在于对某段时间内的数据聚合操作，没有大量的单文档请求（比如通过userid来找到一个用户的文档，类似于NoSQL的应用场景），所以能否替代NoSQL还需要各位自己的测试。
+3.如果让我选择的话，我会尝试使用ES来替代传统的NoSQL，因为它的横向扩展机制太方便了。
