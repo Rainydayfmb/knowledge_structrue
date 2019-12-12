@@ -14,7 +14,7 @@ private static void sort(int[] array) throws Exception {
      System.out.println("冒泡排序优化前...");
      int n = array.length;
      for (int i = 0; i < n; i++) {
-         for (int j = 0; j < n - i - 1; j++) {
+         for (int j = 0; j < n - i; j++) {
              if (array[j] > array[j + 1]) {
                  swap(array, j, j + 1);
              }
@@ -33,6 +33,24 @@ private static void sort(int[] array) throws Exception {
     }
 ```
 
+优化版本
+```java
+public static void bubbleSort(int[] table){
+  //是否进行数据交换
+  boolean exchange = true;
+  for(int i = 1;i<table.length&&exchange;i++){ //有交换时再进行下一趟，最多n-1趟
+    exchange = false;
+    for(int j = 0 ; j<table.length-i;j++){
+      if(table[j]>table[j+1]){
+        int temp =table[j];
+        table[j] =table[j+1];
+        table[j+1] = temp;
+        exchange = true;
+      }
+    }
+  }
+}
+```
 #### 快速排序
 [参考](https://blog.csdn.net/wehung/article/details/82704565)
 
@@ -65,55 +83,41 @@ void quick_sort(int s[], int l, int r){
 }
 ```
 
-countdownlatch
-```Java
-public class CountDownLatchTest {
-
-    public static void main(String[] args) {
-        final CountDownLatch latch = new CountDownLatch(2);
-        System.out.println("主线程开始执行…… ……");
-        //第一个子线程执行
-        ExecutorService es1 = Executors.newSingleThreadExecutor();
-        es1.execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    Thread.sleep(3000);
-                    System.out.println("子线程："+Thread.currentThread().getName()+"执行");
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                latch.countDown();
-            }
-        });
-        es1.shutdown();
-
-        //第二个子线程执行
-        ExecutorService es2 = Executors.newSingleThreadExecutor();
-        es2.execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    Thread.sleep(3000);
-                } catch (InterruptedException e) {
-                    e.printStackTrace();
-                }
-                System.out.println("子线程："+Thread.currentThread().getName()+"执行");
-                latch.countDown();
-            }
-        });
-        es2.shutdown();
-        System.out.println("等待两个线程执行完毕…… ……");
-        try {
-            latch.await();
-        } catch (InterruptedException e) {
-            e.printStackTrace();
-        }
-        System.out.println("两个子线程都执行完毕，继续执行主线程");
+进阶版
+```java
+public static void  quickSort(int[] table){ //快速排序
+  quickSort(table,0,table.length-1);
+}
+//一趟快排，begin、end指定序列的下界和上届，递归算法
+privte static void quickSort(int[] table, int begin,int end){
+  if(begin < end){
+    int i = begin;
+    int j = end;
+    int vot = table[i];
+    while(i!=j){
+      while(i<j && vot<=table[j]){
+        j--;
+      }
+      if(i<j){
+        table[i++]=table[j];
+      }
+      while(i<j && table[i]<=vot){
+        i++;
+      }
+      if(i<j){
+        table[j--]=table[i];
+      }
     }
+    table[i] = vot;
+    quickSort(table,begin,j-1);
+    quickSort(table,i+1,end);
+  }
 }
 
-```
+
+#### 堆排序
+堆排序是完全二叉树的应用，是充分利用完全二叉树特性的一种选择排序。
+
 
 
 ## leetcode
