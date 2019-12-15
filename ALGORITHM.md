@@ -113,6 +113,7 @@ privte static void quickSort(int[] table, int begin,int end){
     quickSort(table,i+1,end);
   }
 }
+```
 
 
 #### 堆排序
@@ -122,8 +123,8 @@ privte static void quickSort(int[] table, int begin,int end){
 
 ## leetcode
 
-283 Move Zeroes
-Given an array nums, write a function to move all 0's to the end of it while maintaining the relative order of the non-zero elements.
+### 283 Move Zeroes
+Given an array nums, write a function to move all 0s to the end of it while maintaining the relative order of the non-zero elements.
 
 **Example:**
 
@@ -156,7 +157,7 @@ class Solution {
 }
 ```
 
-**2. 两数相加**
+### 2 两数相加
 给出两个 非空 的链表用来表示两个非负的整数。其中，它们各自的位数是按照 逆序 的方式存储的，并且它们的每个节点只能存储 一位 数字。
 如果，我们将这两个数相加起来，则会返回一个新的链表来表示它们的和。
 您可以假设除了数字 0 之外，这两个数都不会以 0 开头。
@@ -206,7 +207,7 @@ class Solution {
 }
 ```
 
-**70.爬楼梯**
+### 70 爬楼梯
 假设你正在爬楼梯。需要 n 阶你才能到达楼顶。
 每次你可以爬 1 或 2 个台阶。你有多少种不同的方法可以爬到楼顶呢？
 注意：给定 n 是一个正整数。
@@ -252,7 +253,7 @@ class Solution {
 }
 ```
 
-**1.两数相加**
+### 1 两数相加
 **描述**
 给定一个整数数组 nums 和一个目标值 target，请你在该数组中找出和为目标值的那 两个 整数，并返回他们的数组下标。
 你可以假设每种输入只会对应一个答案。但是，你不能重复利用这个数组中同样的元素。
@@ -282,7 +283,143 @@ class Solution {
 
 linux 统计相当uri的多少，并排序。如何解决hash函数的相关问题，hash碰撞的相关问题。
 
+### 146 LRU缓存机制
+**描述**
+运用你所掌握的数据结构，设计和实现一个  LRU (最近最少使用) 缓存机制。它应该支持以下操作： 获取数据 get 和 写入数据 put 。
+获取数据 get(key) - 如果密钥 (key) 存在于缓存中，则获取密钥的值（总是正数），否则返回 -1。
+写入数据 put(key, value) - 如果密钥不存在，则写入其数据值。当缓存容量达到上限时，它应该在写入新数据之前删除最近最少使用的数据值，从而为新的数据值留出空间。
 
+**示例**
+```java
+LRUCache cache = new LRUCache( 2 /* 缓存容量 */ );
+
+cache.put(1, 1);
+cache.put(2, 2);
+cache.get(1);       // 返回  1
+cache.put(3, 3);    // 该操作会使得密钥 2 作废
+cache.get(2);       // 返回 -1 (未找到)
+cache.put(4, 4);    // 该操作会使得密钥 1 作废
+cache.get(1);       // 返回 -1 (未找到)
+cache.get(3);       // 返回  3
+cache.get(4);       // 返回  4
+```
+
+**思路**
+这个问题可以用哈希表，辅以双向链表记录键值对的信息。所以可以在 O(1)O(1)O(1) 时间内完成 put 和 get 操作，同时也支持 O(1)O(1)O(1) 删除第一个添加的节点。
+![avatar](https://pic.leetcode-cn.com/815038bb44b7f15f1f32f31d40e75c250cec3c5c42b95175ec012c00a0243833-146-1.png)
+使用双向链表的一个好处是不需要额外信息删除一个节点，同时可以在常数时间内从头部或尾部插入删除节点。
+
+一个需要注意的是，在双向链表实现中，这里使用一个伪头部和伪尾部标记界限，这样在更新的时候就不需要检查是否是 null 节点。
+![avatar](https://pic.leetcode-cn.com/48292c190e50537087ea8c60ed44062675d55a73d1a59035d26e277a36b7b8e2-146-2.png)
+
+**实现**
+```Java
+import java.util.Hashtable;
+public class LRUCache {
+
+  class DLinkedNode {
+    int key;
+    int value;
+    DLinkedNode prev;
+    DLinkedNode next;
+  }
+
+  private void addNode(DLinkedNode node) {
+    /**
+     * Always add the new node right after head.
+     */
+    node.prev = head;
+    node.next = head.next;
+
+    head.next.prev = node;
+    head.next = node;
+  }
+
+  private void removeNode(DLinkedNode node){
+    /**
+     * Remove an existing node from the linked list.
+     */
+    DLinkedNode prev = node.prev;
+    DLinkedNode next = node.next;
+
+    prev.next = next;
+    next.prev = prev;
+  }
+
+  private void moveToHead(DLinkedNode node){
+    /**
+     * Move certain node in between to the head.
+     */
+    removeNode(node);
+    addNode(node);
+  }
+
+  private DLinkedNode popTail() {
+    /**
+     * Pop the current tail.
+     */
+    DLinkedNode res = tail.prev;
+    removeNode(res);
+    return res;
+  }
+
+  private Hashtable<Integer, DLinkedNode> cache =
+          new Hashtable<Integer, DLinkedNode>();
+  private int size;
+  private int capacity;
+  private DLinkedNode head, tail;
+
+  public LRUCache(int capacity) {
+    this.size = 0;
+    this.capacity = capacity;
+
+    head = new DLinkedNode();
+    // head.prev = null;
+
+    tail = new DLinkedNode();
+    // tail.next = null;
+
+    head.next = tail;
+    tail.prev = head;
+  }
+
+  public int get(int key) {
+    DLinkedNode node = cache.get(key);
+    if (node == null) return -1;
+
+    // move the accessed node to the head;
+    moveToHead(node);
+
+    return node.value;
+  }
+
+  public void put(int key, int value) {
+    DLinkedNode node = cache.get(key);
+
+    if(node == null) {
+      DLinkedNode newNode = new DLinkedNode();
+      newNode.key = key;
+      newNode.value = value;
+
+      cache.put(key, newNode);
+      addNode(newNode);
+
+      ++size;
+
+      if(size > capacity) {
+        // pop the tail
+        DLinkedNode tail = popTail();
+        cache.remove(tail.key);
+        --size;
+      }
+    } else {
+      // update the value.
+      node.value = value;
+      moveToHead(node);
+    }
+  }
+}
+```
 
 反转链表
 ```Java
@@ -300,8 +437,4 @@ class Solution {
 
     }
 }
-
-
-
-
 ```
