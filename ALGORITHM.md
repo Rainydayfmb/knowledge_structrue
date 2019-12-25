@@ -2,6 +2,37 @@
 
 ## 数据结构
 
+### 查找
+#### 二分查找
+```Java
+private static int binarySearch(int[] arr, int key) {
+	int min = 0;
+	int max = arr.length - 1;
+	int mid = (max + min)/2;
+	while(min <= max) {
+		if(arr[mid] < key) {
+			 min = mid + 1;
+		}else if(arr[mid] > key) {
+			 max = mid - 1;
+		}else {
+			 return mid;
+		}
+			mid = (max + min)/2;
+		}
+		return -1;
+	}
+```
+#### 快速选择算法
+[参考](https://zhuanlan.zhihu.com/p/64627590)
+Top K 问题的最优解 - 快速选择算法（Quickselect）
+**解法一**
+快速排序算法
+**解法二**
+最小堆算法
+**解法三**
+快速选择
+[快速选择算法](https://www.jianshu.com/p/52f90fe2b141)
+
 ### 排序
 
 #### 冒泡排序
@@ -123,36 +154,30 @@ privte static void quickSort(int[] table, int begin,int end){
 
 ## leetcode
 
-### 283 Move Zeroes
-Given an array nums, write a function to move all 0s to the end of it while maintaining the relative order of the non-zero elements.
+### 1 两数相加
+**描述**
+给定一个整数数组 nums 和一个目标值 target，请你在该数组中找出和为目标值的那 两个 整数，并返回他们的数组下标。
+你可以假设每种输入只会对应一个答案。但是，你不能重复利用这个数组中同样的元素。
 
-**Example:**
+**示例**
+```Java
+给定 nums = [2, 7, 11, 15], target = 9
+因为 nums[0] + nums[1] = 2 + 7 = 9
+所以返回 [0, 1]
+```
 
-Input: [0,1,0,3,12]
-Output: [1,3,12,0,0]
-
-**Note:**
-
-- You must do this in-place without making a copy of the array.
-- Minimize the total number of operations.
-
-**思路**
-这道题可以用两个指针去做，第一个指针正常依次访问数组中的数据，第二个慢指针在第一个指针遇到非空的值后，快指针和慢指针所指的值交换，慢指针+1，慢指针所依次所指向的就是去掉零后的排序。
-
-**Solution:**
+**Solution**
 ```Java
 class Solution {
-    public void moveZeroes(int[] nums) {
-        int l = nums.length;
-        int j = 0;
-        for(int i = 0;i<l;i++){
-            if(nums[i] != 0){
-                int temp = nums[j];
-                nums[j] = nums[i];
-                nums[i] = temp;
-                j++;
+    public int[] twoSum(int[] nums, int target) {
+        for(int i=0;i<nums.length;i++){
+            for(int j=i+1;j<nums.length;j++){
+                if(nums[j] == target - nums[i]){
+                    return new int[]{i,j};
+                }
             }
         }
+        return new int[2];
     }
 }
 ```
@@ -249,34 +274,6 @@ class Solution {
             two = temp + two;
         }
         return two;
-    }
-}
-```
-
-### 1 两数相加
-**描述**
-给定一个整数数组 nums 和一个目标值 target，请你在该数组中找出和为目标值的那 两个 整数，并返回他们的数组下标。
-你可以假设每种输入只会对应一个答案。但是，你不能重复利用这个数组中同样的元素。
-
-**示例**
-```Java
-给定 nums = [2, 7, 11, 15], target = 9
-因为 nums[0] + nums[1] = 2 + 7 = 9
-所以返回 [0, 1]
-```
-
-**Solution**
-```Java
-class Solution {
-    public int[] twoSum(int[] nums, int target) {
-        for(int i=0;i<nums.length;i++){
-            for(int j=i+1;j<nums.length;j++){
-                if(nums[j] == target - nums[i]){
-                    return new int[]{i,j};
-                }
-            }
-        }
-        return new int[2];
     }
 }
 ```
@@ -420,6 +417,91 @@ public class LRUCache {
   }
 }
 ```
+
+### 283 Move Zeroes
+Given an array nums, write a function to move all 0s to the end of it while maintaining the relative order of the non-zero elements.
+
+**Example:**
+
+Input: [0,1,0,3,12]
+Output: [1,3,12,0,0]
+
+**Note:**
+
+- You must do this in-place without making a copy of the array.
+- Minimize the total number of operations.
+
+**思路**
+这道题可以用两个指针去做，第一个指针正常依次访问数组中的数据，第二个慢指针在第一个指针遇到非空的值后，快指针和慢指针所指的值交换，慢指针+1，慢指针所依次所指向的就是去掉零后的排序。
+
+**Solution:**
+```Java
+class Solution {
+    public void moveZeroes(int[] nums) {
+        int l = nums.length;
+        int j = 0;
+        for(int i = 0;i<l;i++){
+            if(nums[i] != 0){
+                int temp = nums[j];
+                nums[j] = nums[i];
+                nums[i] = temp;
+                j++;
+            }
+        }
+    }
+}
+```
+
+### 347. 前 K 个高频元素
+**描述**
+给定一个非空的整数数组，返回其中出现频率前 k 高的元素。
+
+**示例**
+示例 1:
+```java
+输入: nums = [1,1,1,2,2,3], k = 2
+输出: [1,2]
+```
+示例 2:
+```Java
+输入: nums = [1], k = 1
+输出: [1]
+```
+**说明**
+- 你可以假设给定的 k 总是合理的，且 1 ≤ k ≤ 数组中不相同的元素的个数。
+- 你的算法的时间复杂度必须优于 O(n log n) , n 是数组的大小。
+
+**Solutin**
+```Java
+class Solution {
+    public List<Integer> topKFrequent(int[] nums, int k) {
+        Map<Integer,Integer> freqMap = new HashMap<>();
+        for(int num : nums){
+            freqMap.put(num,freqMap.getOrDefault(num,0)+1);
+        }
+        List<Integer>[] bucket = new List[nums.length + 1];
+        for(Integer key: freqMap.keySet()){
+            int freq = freqMap.get(key);
+            if(bucket[freq] == null){
+                bucket[freq] = new LinkedList<Integer>();
+            }
+            bucket[freq].add(key);
+        }
+
+        List<Integer> result = new LinkedList<Integer>();
+        for(int i = nums.length;i>=0 && result.size()<k;i--){
+            if(bucket[i] !=null ){
+                result.addAll(bucket[i]);
+            }
+        }
+        return result;
+    }
+}
+```
+
+
+
+
 
 反转链表
 ```Java
