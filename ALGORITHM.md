@@ -231,6 +231,69 @@ class Solution {
     }
 }
 ```
+### 25. K 个一组翻转链表
+**描述：**
+给你一个链表，每 k 个节点一组进行翻转，请你返回翻转后的链表。
+k 是一个正整数，它的值小于或等于链表的长度。
+如果节点总数不是 k 的整数倍，那么请将最后剩余的节点保持原有顺序。
+**示例：**
+```Java
+给定这个链表：1->2->3->4->5
+当 k = 2 时，应当返回: 2->1->4->3->5
+当 k = 3 时，应当返回: 3->2->1->4->5
+```
+**说明：**
+- 你的算法只能使用常数的额外空间。
+- 你不能只是单纯的改变节点内部的值，而是需要实际的进行节点交换。
+
+**Solution:**
+```Java
+/**
+ * Definition for singly-linked list.
+ * public class ListNode {
+ *     int val;
+ *     ListNode next;
+ *     ListNode(int x) { val = x; }
+ * }
+ */
+class Solution {
+    public ListNode reverseKGroup(ListNode head, int k) {
+        ListNode dummy = new ListNode(0);
+        dummy.next = head;
+        ListNode pre = dummy;
+        ListNode end = dummy;
+        while(end!=null){
+            for(int i = 0;i<k&&end!=null;i++){
+                end = end.next;
+            }
+            if(end == null){
+                break;
+            }
+            ListNode start = pre.next;
+            ListNode next = end.next;
+            end.next = null;
+            pre.next = reverse(start);
+            start.next = next;
+            pre = start;
+            end = pre;
+        }
+        return dummy.next;
+    }
+
+    public ListNode  reverse(ListNode start){
+        ListNode pre = null;
+        ListNode curr = start;
+        while(curr !=null){
+            ListNode next = curr.next;
+            curr.next = pre;
+            pre = curr;
+            curr = next;
+        }
+        return pre;
+    }
+}
+```
+
 
 ### 70 爬楼梯
 假设你正在爬楼梯。需要 n 阶你才能到达楼顶。
@@ -279,6 +342,82 @@ class Solution {
 ```
 
 linux 统计相当uri的多少，并排序。如何解决hash函数的相关问题，hash碰撞的相关问题。
+
+### 104. 二叉树的最大深度
+**描述：**
+给定一个二叉树，找出其最大深度。
+二叉树的深度为根节点到最远叶子节点的最长路径上的节点数。
+说明: 叶子节点是指没有子节点的节点。
+
+**示例：**
+ 给定二叉树 [3,9,20,null,null,15,7]，
+ ```Java
+   3
+  / \
+ 9   20
+    /  \
+   15   7
+ ```
+ 返回它的最大深度 3 。
+
+ **Solution:**
+ 递归解法
+ ```Java
+ /**
+ * Definition for a binary tree node.
+ * public class TreeNode {
+ *     int val;
+ *     TreeNode left;
+ *     TreeNode right;
+ *     TreeNode(int x) { val = x; }
+ * }
+ */
+class Solution {
+    public int maxDepth(TreeNode root) {
+        if(root == null) return 0;
+        int heightL = maxDepth(root.left);
+        int heightR = maxDepth(root.right);
+        return Math.max(heightL,heightR)+1;
+    }
+}
+ ```
+
+ 非递归解法
+```Java
+/**
+ * Definition for a binary tree node.
+ * public class TreeNode {
+ *     int val;
+ *     TreeNode left;
+ *     TreeNode right;
+ *     TreeNode(int x) { val = x; }
+ * }
+ */
+class Solution {
+    public int maxDepth(TreeNode root) {
+        if(root == null){
+            return 0;
+        }
+        Queue<TreeNode> queue = new LinkedList<TreeNode>();
+        int maxDepth = 0;
+        queue.offer(root);
+        while(!queue.isEmpty()){
+            maxDepth++;
+            int size = queue.size();
+            for(int i = 0; i<size; i++){
+                TreeNode node = queue.poll();
+                if(node.left != null){
+                    queue.offer(node.left);
+                }
+                if(node.right != null){
+                    queue.offer(node.right);
+                }
+            }
+        }
+        return maxDepth;
+    }
+}
+```
 
 ### 146 LRU缓存机制
 **描述**
@@ -499,6 +638,48 @@ class Solution {
 }
 ```
 
+### 543. 二叉树的直径
+**描述：**
+给定一棵二叉树，你需要计算它的直径长度。一棵二叉树的直径长度是任意两个结点路径长度中的最大值。这条路径可能穿过根结点。
+**示例：**
+给定二叉树
+```Java
+       1
+      / \
+     2   3
+    / \
+   4   5
+```
+返回 3, 它的长度是路径 [4,2,1,3] 或者 [5,2,1,3]。
+注意：两结点之间的路径长度是以它们之间边的数目表示。
+
+**Solution**
+```Java
+/**
+ * Definition for a binary tree node.
+ * public class TreeNode {
+ *     int val;
+ *     TreeNode left;
+ *     TreeNode right;
+ *     TreeNode(int x) { val = x; }
+ * }
+ */
+class Solution {
+    int ans = 1;
+    public int diameterOfBinaryTree(TreeNode root) {
+        getDept(root);
+        return ans-1;
+    }
+
+    public int getDept(TreeNode node){
+        if(node == null) return 0;
+        int heightL = getDept(node.left);
+        int heightR = getDept(node.right);
+        ans = Math.max(ans,heightL+heightR+1);
+        return Math.max(heightL,heightR)+1;
+    }
+}
+```
 
 
 
@@ -517,6 +698,30 @@ class ListNode{
 class Solution {
     public ListNode reverse(ListNode head){
 
+    }
+}
+```
+
+### 剑指offer
+孩子们的游戏(圆圈中最后剩下的数)
+```Java
+import java.util.LinkedList;
+public class Solution {
+    public int LastRemaining_Solution(int n, int m) {
+        if(m == 0 || n == 0){
+            return -1;
+        }
+        LinkedList<Integer> list = new LinkedList();
+        for(int i = 0; i<n; i++){
+            list.add(i);
+        }
+        int index = -1;
+        while(list.size()>1){
+            index = (index+m)%list.size();
+            list.remove(index);
+            index--;
+        }
+        return list.get(0);
     }
 }
 ```
