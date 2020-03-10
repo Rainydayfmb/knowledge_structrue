@@ -1,0 +1,11 @@
+##一 aerospike的数据模型
+更改数据的类型不用更改schema;
+
+NameSpaces;
+包含记录，索引和策略；其中策略规定：namespace的行为，存储在SRMAM或者risk,一条记录有多少哥副本，什么时候记录过期；
+
+
+sets:
+
+records:
+包含key,metadata,bins;
