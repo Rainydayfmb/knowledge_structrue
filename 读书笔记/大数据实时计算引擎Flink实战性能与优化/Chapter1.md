@@ -1,5 +1,12 @@
-# 公司到底需不需要引入实时计算引擎
-## 实时计算需求
+<!-- TOC -->
+
+- [1. 公司到底需不需要引入实时计算引擎](#1-公司到底需不需要引入实时计算引擎)
+    - [1.1. 实时计算需求](#11-实时计算需求)
+    - [1.2. 实时计算场景](#12-实时计算场景)
+
+<!-- /TOC -->
+# 1. 公司到底需不需要引入实时计算引擎
+## 1.1. 实时计算需求
 ![avator](https://zhisheng-blog.oss-cn-hangzhou.aliyuncs.com/images/h8Jmtt.jpg)
 最根本的需求都是要实时查看数据信息，要考虑的问题分为三点
 - 如何实时采集数据
@@ -8,7 +15,7 @@
 
 ![avator](https://zhisheng-blog.oss-cn-hangzhou.aliyuncs.com/images/NQzEtY.jpg)
 
-## 实时计算场景
+## 1.2. 实时计算场景
 ![avator](https://zhisheng-blog.oss-cn-hangzhou.aliyuncs.com/images/zL93nD.jpg)
 
 **1.实时数据存储**

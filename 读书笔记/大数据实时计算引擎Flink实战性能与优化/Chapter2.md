@@ -1,4 +1,12 @@
-# 彻底了解大数据实时计算框架flink
+<!-- TOC -->
+
+- [1. 彻底了解大数据实时计算框架flink](#1-彻底了解大数据实时计算框架flink)
+    - [1.1. 什么是flink?](#11-什么是flink)
+    - [1.2. flink 整体架构](#12-flink-整体架构)
+    - [1.3. flink支持多种部署方式](#13-flink支持多种部署方式)
+
+<!-- /TOC -->
+# 1. 彻底了解大数据实时计算框架flink
 数据集类型
 - 无穷数据集：无穷的持集成的数据集合；
 - 有界数据集：有限不会改变的数据集合；
@@ -7,12 +15,12 @@
 - 流式：只要数据一直在生产，计算就持续的进行；
 - 批处理：在预先定义的时间内运行计算，当计算完成时释放计算机资源；
 
-## 什么是flink?
+## 1.1. 什么是flink?
 ![avator](https://zhisheng-blog.oss-cn-hangzhou.aliyuncs.com/images/pRMhfm.jpg)
 flink是针对流数据和批数据的分布式处理引擎，是一款真正的流批统一的处理引擎。
 ![avator](https://zhisheng-blog.oss-cn-hangzhou.aliyuncs.com/images/vY6T3M.jpg)
 
-## flink 整体架构
+## 1.2. flink 整体架构
 
 ![avator](https://zhisheng-blog.oss-cn-hangzhou.aliyuncs.com/images/Drsi9h.jpg)
 
@@ -22,7 +30,7 @@ flink是针对流数据和批数据的分布式处理引擎，是一款真正的
 3.API:DataStream,DataSet,Table,SQL API.
 4.扩展库：Flink还包括用于CEPCEP(复杂时间处理)，机器学习、图形处理等场景。
 
-## flink支持多种部署方式
+## 1.3. flink支持多种部署方式
 基于k8s的flink部署方式，运行架构有一下这种形式：
 ![avator](https://raw.githubusercontent.com/Aleksandr-Filichkin/flink-k8s/master/flow.jpg)
 
