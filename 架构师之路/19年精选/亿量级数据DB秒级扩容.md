@@ -81,7 +81,7 @@
 （2）%2=1的部分，会变为%4=1与%4=3；
 
 ##### 1.4.1.5.2. 步骤二： reload配置，实例扩容。
-![avator](https://ss.csdn.net/p?https://mmbiz.qpic.cn/mmbiz_png/YrezxckhYOzOGwoVobJtZTvibPmgp6DGTYdtyLG7P9D4XsqP2EXJ2FaV0Qo4KXTicjDicrZs70B6TEdKA0ic6fNLpA/640?wx_fmt=png)
+![avator](http://p9.pstatp.com/large/pgc-image/165b0433b198484a96d31896fe64cf36)
 服务层reload配置，reload可能是这么几种方式：
 （a）比较原始的，重启服务，读新的配置文件；
 （b）高级一点的，配置中心给服务发信号，重读配置文件，重新初始化数据库连接池；
